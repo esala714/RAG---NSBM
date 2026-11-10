@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NSBM Green University - Admin & RAG Portal</title>
+    <style>
+        :root {
+            --primary: #0B3D3B;
+            --accent: #148A64;
+            --secondary: #99F6E4;
+            --surface: #E6FFFB;
+            --background: #F8FFFE;
+            --text-main: #0B3D3B;
+            --white: #FFFFFF;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: var(--background);
+            color: var(--text-main);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sidebar Navigation */
+        aside {
+            width: 280px;
+            background-color: var(--primary);
+            border-right: 1px solid var(--accent);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 24px;
+            color: var(--white);
+        }
+
+        .brand h2 {
+            color: var(--white);
+            font-size: 1.25rem;
+            margin-bottom: 4px;
+        }
+
+        .brand p {
+            font-size: 0.85rem;
+            color: var(--secondary);
+        }
+
+        .nav-links {
+            list-style: none;
+            margin-top: 24px;
+        }
+
+        .nav-links li {
+            padding: 10px 14px;
+            margin-bottom: 6px;
+            border-radius: 8px;
+            cursor: pointer;
+            color: var(--surface);
+            transition: background 0.2s;
+        }
+
+        .nav-links li:hover, .nav-links li.active {
+            background-color: var(--accent);
+            color: var(--white);
+        }
+
+        /* Main Chat & Content Area */
+        main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--background);
+        }
+
+        header {
+            padding: 20px 32px;
+            background-color: var(--surface);
+            border-bottom: 1px solid var(--secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            font-size: 1.2rem;
+            color: var(--primary);
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .user-badge {
+            background-color: var(--secondary);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        /* Chat Window */
+        .chat-container {
+            flex: 1;
+            padding: 24px 32px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .message {
+            max-width: 75%;
+            padding: 16px;
+            border-radius: 12px;
+            line-height: 1.5;
+            font-size: 0.95rem;
+        }
+
+        .message.bot {
+            background-color: var(--surface);
+            color: var(--primary);
+            align-self: flex-start;
+            border-left: 4px solid var(--accent);
+            box-shadow: 0 2px 4px rgba(11, 61, 59, 0.05);
+        }
+
+        .message.user {
+            background-color: var(--primary);
+            color: var(--white);
+            align-self: flex-end;
+        }
+
+        .source-tag {
+            display: inline-block;
+            margin-top: 8px;
+            font-size: 0.75rem;
+            background: var(--background);
+            color: var(--accent);
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--secondary);
+        }
+
+        /* Input Area */
+        .input-area {
+            padding: 20px 32px;
+            background-color: var(--surface);
+            border-top: 1px solid var(--secondary);
+            display: flex;
+            gap: 12px;
+        }
+
+        .input-area input {
+            flex: 1;
+            padding: 14px 18px;
+            border-radius: 8px;
+            border: 1px solid var(--accent);
+            background-color: var(--white);
+            color: var(--primary);
+            font-size: 0.95rem;
+            outline: none;
+        }
+
+        .input-area input:focus {
+            border-color: var(--secondary);
+            box-shadow: 0 0 0 2px rgba(153, 246, 228, 0.3);
+        }
+
+        .input-area button {
+            padding: 0 24px;
+            background-color: var(--accent);
+            color: var(--white);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        .input-area button:hover {
+            background-color: var(--primary);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Sidebar -->
+    <aside>
+        <div>
+            <div class="brand">
+                <h2>NSBM Green University</h2>
+                <p>Admin & RAG Assistant</p>
+            </div>
+            
+            <ul class="nav-links">
+                <li class="active"> AI Assistant</li>
+                <li onclick="window.open('https://www.nsbm.ac.lk/degree-programmes', '_blank')"> Course Catalogs</li>
+                <li>Payments</li>
+                <li> Examination</li>
+                <li> Lecturers</li>
+            </ul>
+
+            <!-- FREQUENTLY ASKED QUESTIONS SECTION -->
+            <div style="margin-top: 24px; border-top: 1px solid var(--accent); padding-top: 16px;">
+                <p style="font-size: 0.75rem; font-weight: bold; color: var(--secondary); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">Most Asked FAQs</p>
+                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.82rem;">
+                    <a href="#" onclick="askPreset('What are the semester payment deadlines?')" style="color: var(--surface); text-decoration: none; padding: 6px 8px; border-radius: 6px; background: rgba(20, 138, 100, 0.3); transition: background 0.2s;"> Payment Deadlines?</a>
+                    <a href="#" onclick="askPreset('What are the exam repetition rules?')" style="color: var(--surface); text-decoration: none; padding: 6px 8px; border-radius: 6px; background: rgba(20, 138, 100, 0.3); transition: background 0.2s;">Exam Repetition Policy</a>
+                    <a href="#" onclick="askPreset('What are the qualifications required to become a lecturer?')" style="color: var(--surface); text-decoration: none; padding: 6px 8px; border-radius: 6px; background: rgba(20, 138, 100, 0.3); transition: background 0.2s;"> Lecturer Qualifications</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONTACT INFO & HOTLINE -->
+        <div style="border-top: 1px solid var(--accent); padding-top: 16px; font-size: 0.8rem; color: var(--surface);">
+            <p style="font-weight: bold; color: var(--secondary); margin-bottom: 4px;"> NSBM Support Desk</p>
+            <p style="color: var(--secondary); margin-bottom: 2px;">Hotline: <span style="color: var(--white);">+94 11 544 5000</span></p>
+            <p style="color: var(--secondary);">Email: <span style="color: var(--white);">inquiries@nsbm.ac.lk</span></p>
+        </div>
+    </aside>
+
+    <!-- Main Chat Interface -->
+    <main>
+        <header>
+            <h1>NSBM Administrative Knowledge Base</h1>
+            <div class="header-right">
+                <div class="user-badge">Student / Faculty Portal</div>
+                <button onclick="openLoginModal()" style="background: var(--accent); color: var(--white); border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background 0.2s;">
+                     <span id="loginBtnText">Login</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="chat-container" id="chatContainer">
+            <div class="message bot">
+                Welcome to NSBM Green University's Administrative Assistant! I can help you with semester payments, examination guidelines, lecturer recruitment criteria, and course outlines. How can I assist you today?
+                <br><span class="source-tag">Source: NSBM General Handbook</span>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <input type="text" id="queryInput" placeholder="Ask about exams, payments, lecturer qualifications..." />
+            <button onclick="sendQuery()">Send</button>
+        </div>
+    </main>
+
+    <!-- LOGIN MODAL POPUP -->
+    <div id="nsbmLoginModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(11, 61, 59, 0.8); z-index: 9999; justify-content: center; align-items: center;">
+        <div style="background: var(--surface); padding: 32px; border-radius: 16px; width: 380px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); border: 1px solid var(--secondary); color: var(--primary);">
+            <h3 style="margin-top: 0; color: var(--primary); font-size: 1.25rem; margin-bottom: 8px;">NSBM Portal Login</h3>
+            <p style="font-size: 0.85rem; color: var(--accent); margin-bottom: 24px;">Enter your credentials to access exams, payments, or admin records.</p>
+            
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; font-size: 0.8rem; font-weight: bold; color: var(--primary); margin-bottom: 6px;">User ID / Email</label>
+                <input type="text" id="modalUserId" placeholder="e.g. student@nsbm.ac.lk" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--accent); background-color: var(--white); color: var(--primary); outline: none; box-sizing: border-box;" />
+            </div>
+
+            <div style="margin-bottom: 24px;">
+                <label style="display: block; font-size: 0.8rem; font-weight: bold; color: var(--primary); margin-bottom: 6px;">Password</label>
+                <input type="password" id="modalPassword" placeholder="••••••••" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--accent); background-color: var(--white); color: var(--primary); outline: none; box-sizing: border-box;" />
+            </div>
+
+            <div style="display: flex; gap: 12px;">
+                <button onclick="submitLogin()" style="flex: 1; background: var(--accent); color: var(--white); border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer;">Sign In</button>
+                <button onclick="closeLoginModal()" style="flex: 1; background: #CBD5E1; color: #334155; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCRIPTS -->
+    <script>
+        function askPreset(questionText) {
+            const input = document.getElementById('queryInput');
+            input.value = questionText;
+            sendQuery();
+        }
+
+        function sendQuery() {
+            const input = document.getElementById('queryInput');
+            const container = document.getElementById('chatContainer');
+            const query = input.value.trim();
+
+            if (!query) return;
+
+            // Append User Message
+            const userMsg = document.createElement('div');
+            userMsg.className = 'message user';
+            userMsg.textContent = query;
+            container.appendChild(userMsg);
+
+            input.value = '';
+            container.scrollTop = container.scrollHeight;
+
+            // Simulated RAG Response (Will connect to FastAPI backend)
+            setTimeout(() => {
+                const botMsg = document.createElement('div');
+                botMsg.className = 'message bot';
+                botMsg.innerHTML = `Query received regarding: "<strong>${query}</strong>". Searching NSBM RAG Knowledge Base...<br><span class="source-tag">Source: NSBM University Database</span>`;
+                container.appendChild(botMsg);
+                container.scrollTop = container.scrollHeight;
+            }, 600);
+        }
+
+        function openLoginModal() { 
+            document.getElementById('nsbmLoginModal').style.display = 'flex'; 
+        }
+        
+        function closeLoginModal() { 
+            document.getElementById('nsbmLoginModal').style.display = 'none'; 
+        }
+
+        async function submitLogin() {
+            const user_id = document.getElementById('modalUserId').value.trim();
+            const password = document.getElementById('modalPassword').value.trim();
+            
+            if (!user_id || !password) { 
+                alert('Please enter both User ID and password.'); 
+                return; 
+            }
+
+            try {
+                const res = await fetch('http://127.0.0.1:8001/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id, password })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    localStorage.setItem('nsbm_token', data.token);
+                    alert(`Login Successful! Welcome ${data.user.full_name}`);
+                    closeLoginModal();
+                } else {
+                    alert(data.detail || 'Login failed.');
+                }
+            } catch (e) {
+                alert('Backend connection check: Ensure FastAPI is running on port 8001.');
+            }
+        }
+
+        document.getElementById('queryInput').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                sendQuery();
+            }
+        });
+    </script>
+</body>
+</html>
