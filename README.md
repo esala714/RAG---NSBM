@@ -52,7 +52,9 @@ RAG---NSBM/
     core/                Shared data models and interfaces (ABCs)
     rag/                 Gemini client and prompt builder
     agent/               The agentic loop
-  tests/                 Test retrievers used before the vector store is connected
+    retrieval/           Embeddings, Chroma vector store and hybrid search
+   scripts/               Build the vector store and run search demos
+   tests/                 Test retrievers used before the vector store is connected
   run_demo.py            Command-line demo of the agent
   requirements.txt       Python packages
   env.example            Template for the .env settings file
@@ -108,8 +110,72 @@ Each run is also saved as a JSON file in `logs/traces/`.
 
 ## Embeddings and retrieval (Member 2)
 
-*To be completed by Member 2: embedding model, Chroma setup, and how similarity scores
-(dot product, vector magnitude, cosine similarity) are calculated and logged.*
+The retrieval layer (`src/retrieval/`) turns Member 1's chunks into vectors, stores them in a
+persistent Chroma database, and returns the most relevant chunks for a question **together with
+the maths behind every score**, so each retrieval decision can be checked by hand.
+
+| Step | What it does |
+| --- | --- |
+| Embedding | Each chunk becomes a 384-number vector with `all-MiniLM-L6-v2` (runs locally through Chroma, no API key) |
+| Storage | Chroma `PersistentClient` saves the vectors, text and metadata (source, category, page) in `vector_db/`, so nothing is lost between sessions. Re-indexing never creates duplicates (each chunk id is a hash of its source, page and text) |
+| Dense search | Finds chunks with the same **meaning** (cosine similarity in Chroma) |
+| Sparse search | Finds chunks with the same **exact words**, such as "MBA" or "C+" (TF-IDF, written from scratch with NumPy) |
+| Fusion | Combines the two ranked lists with Reciprocal Rank Fusion (RRF) |
+
+**How the similarity scores are calculated**
+
+Dense score: cosine similarity between the question vector *q* and a chunk vector *d*:
+
+```math
+\cos(q, d) = \frac{q \cdot d}{\lVert q \rVert \, \lVert d \rVert}, \qquad q \cdot d = \sum_{i=1}^{384} q_i d_i, \qquad \lVert q \rVert = \sqrt{\sum_{i=1}^{384} q_i^2}
+```
+
+- MiniLM vectors are already normalised (‖q‖ = ‖d‖ = 1), so here the cosine equals the dot product.
+- The cosine is recomputed by hand from the vectors Chroma returns and checked against Chroma's own
+  cosine distance (cos = 1 − distance).
+
+Sparse score: TF-IDF vectors, normalised to length 1, compared with the same cosine formula.
+Rare words weigh more: tf = 1 + log(count), idf = log((1 + N) / (1 + df)) + 1.
+
+Fusion: only the ranks are combined, because the two score scales are not comparable (k = 60):
+
+```math
+\mathrm{RRF}(d) = \frac{1}{60 + \mathrm{rank}_{\mathrm{dense}}(d)} + \frac{1}{60 + \mathrm{rank}_{\mathrm{sparse}}(d)}
+```
+
+**How the scores are logged**
+
+`result.explain()` prints every intermediate value. Real output for
+*"How late can a candidate enter the examination hall?"*:
+
+```
+#1  Examination Regulations_Instructions To Candidates.pdf, page 2  [Exam]
+    dense : q.d = 0.6589   ||q|| = 1.0000   ||d|| = 1.0000
+            cos = q.d / (||q|| x ||d||) = 0.6589   [Chroma distance 0.3411 -> 1 - dist = 0.6589]
+    sparse: TF-IDF cos = 0.2736   shared terms (q_i x d_i): hall:0.081, enter:0.067, candidate:0.065
+    fusion: dense rank 1, sparse rank 1  ->  RRF = 1/(60+1) + 1/(60+1) = 0.03279
+```
+
+The word "late" never appears in the documents, yet the dense search still finds the rule on
+admission times. This is why both searches are used.
+
+**Running it**
+
+```
+python scripts/build_index.py --raw data/raw --reset      (build the vector store once)
+python scripts/search_demo.py "How late can a candidate enter the examination hall?"
+python scripts/search_demo.py "First class GPA" --mode dense   (modes: hybrid, dense, sparse)
+python -m pytest -q tests                                   (14 tests, run offline)
+```
+
+**Design**
+- **Interfaces (ABCs):** `BaseEmbedder` and `BaseVectorStore`. The embedding model can be swapped
+  (MiniLM or Gemini) without changing the store or the search code (Strategy pattern).
+- **Dependency Injection:** the store receives its embedder and the retriever receives its store.
+  `factory.py` is the only place that chooses them. The tests inject a fake embedder, so they run
+  offline in seconds.
+
+Full details: [`README_member2.md`](README_member2.md).
 
 ---
 
