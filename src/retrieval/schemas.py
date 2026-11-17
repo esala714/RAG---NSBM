@@ -37,9 +37,9 @@ class Chunk:
     """One chunk produced by Member 1's document processor."""
 
     text: str
-    source: str               # document file name, e.g. "NSBM_Leave_Policy.pdf"
-    category: str = "general"  # folder name, e.g. "Exam", "GPA", "leave_policy"
-    page: int = 1             # 1-based page number (DOCX files have no pages -> 1)
+    source: str               # document file name, e.g. "Repeat coursework Procedure.pdf"
+    category: str = "general"  # Member 1's category, e.g. "examinations", "registration"
+    page: int = 0             # 1-based page number; 0 = no page number (DOCX / TXT files)
     chunk_index: int = 0      # position of the chunk inside its page
 
     @property
@@ -85,7 +85,8 @@ class Chunk:
             text=str(text).strip(),
             source=str(_first(merged, _SOURCE_KEYS, "unknown")),
             category=str(_first(merged, _CATEGORY_KEYS, "general")),
-            page=int(_first(merged, _PAGE_KEYS, 1)),
+            # Member 1 writes page_number = None for DOCX/TXT files -> stored as 0
+            page=int(_first(merged, _PAGE_KEYS, 0)),
             chunk_index=int(_first(merged, _INDEX_KEYS, 0)),
         )
 
@@ -125,7 +126,7 @@ class RetrievedChunk:
 
     @property
     def citation(self) -> str:
-        return f"{self.source}, page {self.page}"
+        return f"{self.source}, page {self.page}" if self.page > 0 else self.source
 
 
 @dataclass
@@ -157,10 +158,10 @@ class RetrievalResult:
 
     def to_context(self) -> str:
         """Numbered passages with citations, ready to paste into the LLM prompt."""
-        blocks = [
-            f"[{c.rank}] Source: {c.source} (page {c.page}, category {c.category})\n{c.text}"
-            for c in self.chunks
-        ]
+        blocks = []
+        for c in self.chunks:
+            page = f"page {c.page}, " if c.page > 0 else ""
+            blocks.append(f"[{c.rank}] Source: {c.source} ({page}category {c.category})\n{c.text}")
         return "\n\n".join(blocks)
 
     def to_dict(self) -> dict[str, Any]:
