@@ -2,7 +2,7 @@
 
     python scripts/search_demo.py "How late can I enter the exam hall?"
     python scripts/search_demo.py "First class GPA" --mode dense --k 3
-    python scripts/search_demo.py "annual leave days" --category leave_policy
+    python scripts/search_demo.py "minimum attendance" --category attendance
     python scripts/search_demo.py                      # interactive loop
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ def main() -> None:
     parser.add_argument("question", nargs="?", help="leave empty for interactive mode")
     parser.add_argument("--k", type=int, default=4)
     parser.add_argument("--mode", choices=["hybrid", "dense", "sparse"], default=None)
-    parser.add_argument("--category", default=None, help="e.g. Exam, GPA, leave_policy")
+    parser.add_argument("--category", default=None, help="e.g. examinations, registration, attendance")
     parser.add_argument("--backend", choices=["minilm", "gemini"], default=None)
     parser.add_argument("--json", action="store_true", help="print the raw result as JSON")
     parser.add_argument("--log", action="store_true", help="also show INFO logs of each score")
