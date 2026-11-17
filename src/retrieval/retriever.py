@@ -7,7 +7,13 @@ RRF only uses ranks, so the two very different score scales (embedding
 cosine vs TF-IDF cosine) never have to be compared directly. k = 60 is the
 value from the original RRF paper (Cormack et al., 2009).
 
-This is the object Member 3's agent calls as its "search the documents" tool:
+HybridRetriever implements the team interface ``BaseRetriever``
+(src/core/interfaces.py), so Member 3's AcademicAgent can use it directly:
+
+    chunks = retriever.search("How late can I enter the exam hall?", top_k=4)
+    retriever.last_result.explain()   # the full maths trace of that search
+
+``retrieve()`` returns the richer RetrievalResult for the demos and evaluation:
 
     result = retriever.retrieve("How late can I enter the exam hall?", k=4)
     result.to_context()      # passages + citations for the prompt
@@ -19,6 +25,8 @@ from __future__ import annotations
 import logging
 import time
 
+from ..core import models as team
+from ..core.interfaces import BaseRetriever
 from .schemas import RetrievalResult, RetrievedChunk, ScoreBreakdown
 from .sparse_index import TfidfIndex
 from .vector_math import explain_cosine
@@ -27,7 +35,7 @@ from .vector_store import BaseVectorStore, StoredRecord
 logger = logging.getLogger(__name__)
 
 
-class HybridRetriever:
+class HybridRetriever(BaseRetriever):
     MODES = ("hybrid", "dense", "sparse")
 
     def __init__(
@@ -50,6 +58,7 @@ class HybridRetriever:
         self.sparse_weight = sparse_weight
         self._records: dict[str, StoredRecord] = {}
         self._indexed_count = -1
+        self.last_result: RetrievalResult | None = None  # maths trace of the last search()
 
     # ------------------------------------------------------------ sparse index
     def refresh_sparse_index(self) -> int:
@@ -176,6 +185,49 @@ class HybridRetriever:
             rrf_k=self.rrf_k,
             elapsed_ms=(time.perf_counter() - start) * 1000,
             category_filter=category,
+        )
+
+    # ------------------------------------------- team interface (Member 3's agent)
+    def search(self, query: str, top_k: int = 5) -> list[team.RetrievedChunk]:
+        """BaseRetriever.search(): the "search the documents" tool of the agent.
+
+        The hybrid ranking decides WHICH chunks come back. Each chunk's score is
+        its dense cosine with the question (0 to 1), so the agent's min_score
+        threshold always means the same thing. All the other numbers (dot
+        product, norms, TF-IDF, ranks, RRF) are kept in chunk.extra.
+        """
+        if not (query or "").strip():
+            return []   # e.g. the LLM returned an empty rewrite: nothing to search
+        result = self.retrieve(query, k=top_k)
+        self.last_result = result
+        return [self._to_team_chunk(c, result) for c in result.chunks]
+
+    @staticmethod
+    def _to_team_chunk(c: RetrievedChunk, result: RetrievalResult) -> team.RetrievedChunk:
+        s = c.scores
+        return team.RetrievedChunk(
+            text=c.text,
+            source=c.source,
+            page=c.page if c.page > 0 else None,     # DOCX / TXT files have no pages
+            score=round(min(1.0, max(0.0, s.dense_cosine)), 6),
+            extra={
+                "chunk_id": c.chunk_id,
+                "category": c.category,
+                "rank": c.rank,
+                "mode": result.mode,
+                "embedding_model": result.embedding_model,
+                "dot": round(s.dot, 6),
+                "query_norm": round(s.query_norm, 6),
+                "chunk_norm": round(s.chunk_norm, 6),
+                "dense_cosine": round(s.dense_cosine, 6),
+                "chroma_distance": None if s.chroma_distance is None else round(float(s.chroma_distance), 6),
+                "sparse_cosine": round(float(s.sparse_cosine), 6),
+                "sparse_terms": [[t, round(float(w), 6)] for t, w in s.sparse_terms],
+                "dense_rank": s.dense_rank,
+                "sparse_rank": s.sparse_rank,
+                "rrf_score": round(float(s.rrf_score), 6),
+                "fusion_formula": s.fusion_formula,
+            },
         )
 
     # ----------------------------------------------------------------- helpers
