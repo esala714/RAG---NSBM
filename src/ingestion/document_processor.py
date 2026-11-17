@@ -23,6 +23,7 @@ def infer_category(path: Path) -> str:
         "attendance": ["attendance", "absence", "leave"],
         "student_services": ["student service", "counselling", "library", "support"],
         "fees_and_payments": ["fee", "payment", "scholarship"],
+        "staff": ["lecturer", "staff", "faculty member"],
         "academic_policies": ["policy", "regulation", "handbook", "guideline"],
     }
     for category, words in rules.items():
