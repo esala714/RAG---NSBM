@@ -18,11 +18,11 @@ question ──► HybridRetriever ──► dense search (Chroma) ───┤
 | `src/retrieval/embedders.py` | `BaseEmbedder` (ABC), `MiniLMEmbedder` (default, free, offline), `GeminiEmbedder` (optional) |
 | `src/retrieval/vector_store.py` | `BaseVectorStore` (ABC) and `ChromaVectorStore` (persistent, upsert, metadata, cosine search) |
 | `src/retrieval/sparse_index.py` | TF-IDF vector space model built from scratch with NumPy |
-| `src/retrieval/retriever.py` | `HybridRetriever`: dense + sparse + Reciprocal Rank Fusion, with the score trace |
+| `src/retrieval/retriever.py` | `HybridRetriever` (implements the team's `BaseRetriever`): dense + sparse + Reciprocal Rank Fusion, with the score trace |
 | `src/retrieval/factory.py` | The composition root, `build_retriever()`, which reads settings from the environment |
 | `scripts/build_index.py` | Indexes Member 1's `data/processed/chunks.jsonl` (default), or runs Member 1's processor on `data/raw` |
 | `scripts/search_demo.py` | Prints retrieved chunks and their maths (use this for the video) |
-| `tests/test_retrieval.py` | 16 pytest tests that run offline with a fake embedder |
+| `tests/test_retrieval.py` | 20 pytest tests that run offline with a fake embedder, including the agent running on the real retriever |
 
 ## Interface with the team
 
@@ -58,10 +58,28 @@ python scripts/build_index.py --raw data/raw --reset  # runs Member 1's processo
 * **Duplicates:** exact copies (same file, page and text) are stored once, and the script names the files they came from.
 * **Length:** MiniLM reads only the first 256 word-pieces (about 190 words) of a chunk and ignores the rest. The script warns when chunks are longer than that, so Member 1 can lower `chunk_size`. Gemini embeddings read up to 2048 tokens.
 
-**Output to Member 3 (RAG and agent):**
+**Output to Member 3 (RAG and agent):** `HybridRetriever` inherits the team interface `BaseRetriever` (`src/core/interfaces.py`), so it replaces `FakeRetriever` in `run_demo.py` with no other change:
 
 ```python
 from src.retrieval import build_retriever
+
+agent = AcademicAgent(retriever=build_retriever(), llm=..., prompt_builder=PromptBuilder())
+```
+
+`search(query, top_k)` returns a list of `src.core.models.RetrievedChunk`:
+
+| Field | Value |
+|---|---|
+| `text`, `source` | the chunk and its file name |
+| `page` | 1-based page number, or `None` for DOCX/TXT files |
+| `score` | dense cosine between the question and the chunk (0 to 1). The agent's `min_score` is compared with this. |
+| `extra` | `chunk_id`, `category`, `rank`, `mode`, `embedding_model`, `dot`, `query_norm`, `chunk_norm`, `dense_cosine`, `chroma_distance`, `sparse_cosine`, `sparse_terms`, `dense_rank`, `sparse_rank`, `rrf_score`, `fusion_formula` |
+
+The hybrid ranking decides which chunks are returned; the score shows how close each one is in meaning. An empty query returns an empty list. After each search, `retriever.last_result.explain()` prints the full maths trace of that search.
+
+The richer `retrieve()` method is used by the demos and the evaluation:
+
+```python
 retriever = build_retriever()                       # build it once and reuse it
 
 result = retriever.retrieve(question, k=4)          # optional: category="examinations", mode="dense"
@@ -76,7 +94,7 @@ retriever.list_categories()  # lets the agent decide to narrow a search
 
 ```python
 !pip install -q chromadb pypdf python-docx google-genai
-!unzip -q -o member2_retrieval.zip -d /content/project
+!git clone https://github.com/esala714/RAG---NSBM.git /content/project
 !unzip -q -o member1_data.zip -d /content/project    # gives data/raw/... and data/processed/chunks.jsonl
 %cd /content/project
 
@@ -132,6 +150,7 @@ Add `vector_db/` to `.gitignore`, because the database is rebuilt from the docum
 
 ## Design points for the viva
 
+* **Team interface:** `HybridRetriever` inherits `BaseRetriever`, so the agent depends on the abstraction, not on Chroma. `FakeRetriever` (for testing the agent) and `HybridRetriever` (the real search) can replace each other without changing the agent.
 * **Abstract base classes:** `BaseEmbedder` and `BaseVectorStore` define what the retriever needs, not how it is done.
 * **Strategy pattern:** MiniLM and Gemini are interchangeable embedders.
 * **Dependency injection:** the store receives its embedder (and, optionally, a Chroma client), and the retriever receives its store. `factory.py` is the only place that chooses the concrete classes. The tests inject a fake embedder.
