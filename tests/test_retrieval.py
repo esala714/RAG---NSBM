@@ -122,6 +122,33 @@ def test_chunk_accepts_member1_dict_shapes():
     assert flat == nested
 
 
+def test_chunk_reads_member1_jsonl_record():
+    """The exact shape written by src/ingestion/document_processor.py."""
+    record = {
+        "id": "Repeat coursework Procedure-2-1",
+        "text": "Submit your assignment within 14 days of downloading it.",
+        "metadata": {"source": "Repeat coursework Procedure.pdf", "doc_title": "Repeat coursework Procedure",
+                     "category": "examinations", "file_type": "pdf", "page_number": 2,
+                     "chunk_index": 1, "word_count": 9, "doc_hash": "abc123"},
+    }
+    chunk = Chunk.from_any(record)
+    assert (chunk.source, chunk.category, chunk.page, chunk.chunk_index) == (
+        "Repeat coursework Procedure.pdf", "examinations", 2, 1)
+
+
+def test_file_without_pages_is_cited_without_a_page(tmp_path):
+    """Member 1 writes page_number = None for DOCX/TXT files."""
+    docx_chunk = Chunk.from_any({"text": "Library opening hours are listed on the portal.",
+                                 "metadata": {"source": "Guide.docx", "category": "general",
+                                              "page_number": None, "chunk_index": 1}})
+    assert docx_chunk.page == 0
+    store = ChromaVectorStore(FakeEmbedder(), persist_dir=tmp_path / "db", collection_name="nopage")
+    store.add_chunks([docx_chunk])
+    result = HybridRetriever(store).retrieve("library opening hours", k=1)
+    assert result.chunks[0].citation == "Guide.docx"
+    assert "page" not in result.to_context().splitlines()[0]
+
+
 # -------------------------------------------------------------------- retriever
 @pytest.mark.parametrize("mode", ["hybrid", "dense", "sparse"])
 def test_retrieve_finds_the_right_chunk(store, mode):

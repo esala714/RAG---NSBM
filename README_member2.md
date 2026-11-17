@@ -20,23 +20,43 @@ question ──► HybridRetriever ──► dense search (Chroma) ───┤
 | `src/retrieval/sparse_index.py` | TF-IDF vector space model built from scratch with NumPy |
 | `src/retrieval/retriever.py` | `HybridRetriever`: dense + sparse + Reciprocal Rank Fusion, with the score trace |
 | `src/retrieval/factory.py` | The composition root, `build_retriever()`, which reads settings from the environment |
-| `scripts/build_index.py` | Indexes Member 1's chunks (JSONL), or `data/raw` for a quick test |
+| `scripts/build_index.py` | Indexes Member 1's `data/processed/chunks.jsonl` (default), or runs Member 1's processor on `data/raw` |
 | `scripts/search_demo.py` | Prints retrieved chunks and their maths (use this for the video) |
-| `tests/test_retrieval.py` | 14 pytest tests that run offline with a fake embedder |
+| `tests/test_retrieval.py` | 16 pytest tests that run offline with a fake embedder |
 
 ## Interface with the team
 
-**Input from Member 1** is a list of dicts (or a JSONL file with one dict per line):
+**Input from Member 1** is `data/processed/chunks.jsonl`, written by `src/ingestion/document_processor.py`. Each line is one chunk:
 
 ```json
-{"text": "2.3 Candidates shall be admitted ...", "source": "Examination Regulations_Instructions To Candidates.pdf", "category": "Exam", "page": 2, "chunk_index": 1}
+{"id": "NSBM academic appeals policy-2-1",
+ "text": "1. Valid Grounds for a Results Appeal ...",
+ "metadata": {"source": "NSBM academic appeals policy.pdf", "doc_title": "NSBM academic appeals policy",
+              "category": "academic_policies", "file_type": "pdf", "page_number": 2,
+              "chunk_index": 1, "word_count": 289, "doc_hash": "a418c6..."}}
 ```
 
-`category` is the folder name and `page` starts at 1. Common alternative names are also accepted: `page_content`/`content`, `document_name`/`file_name`, `page_number`, and a nested `metadata` dict.
+What Member 2 reads from each record:
 
-```python
-store.add_chunks(chunks)   # in Python, or: python scripts/build_index.py --chunks data/processed/chunks.jsonl
+| Field | Used as | Notes |
+|---|---|---|
+| `text` | the passage that is embedded and returned | |
+| `metadata.source` | citation | file name |
+| `metadata.category` | filter (`category=`) | e.g. `academic_policies`, `examinations`, `registration`, `attendance` |
+| `metadata.page_number` | citation | 1-based for PDFs; `null` for DOCX/TXT, stored as 0 and cited without a page |
+| `metadata.chunk_index` | part of the chunk id | |
+
+Member 1's `id` is not used: Member 2 makes its own id from source, page, chunk index and text, so identical chunks are stored once. Flat records (`{"text", "source", "category", "page"}`) and the names `page_content`/`content`/`document_name`/`file_name` are accepted too.
+
+```bash
+python scripts/build_index.py --reset                 # reads data/processed/chunks.jsonl
+python scripts/build_index.py --raw data/raw --reset  # runs Member 1's processor on the raw files
 ```
+
+`build_index.py` also checks the chunks before indexing:
+
+* **Duplicates:** exact copies (same file, page and text) are stored once, and the script names the files they came from.
+* **Length:** MiniLM reads only the first 256 word-pieces (about 190 words) of a chunk and ignores the rest. The script warns when chunks are longer than that, so Member 1 can lower `chunk_size`. Gemini embeddings read up to 2048 tokens.
 
 **Output to Member 3 (RAG and agent):**
 
@@ -44,9 +64,9 @@ store.add_chunks(chunks)   # in Python, or: python scripts/build_index.py --chun
 from src.retrieval import build_retriever
 retriever = build_retriever()                       # build it once and reuse it
 
-result = retriever.retrieve(question, k=4)          # optional: category="GPA", mode="dense"
-result.to_context()        # numbered passages with "Source: file (page n)" for the prompt
-result.chunks              # list of RetrievedChunk: .text .source .page .category .scores
+result = retriever.retrieve(question, k=4)          # optional: category="examinations", mode="dense"
+result.to_context()        # numbered passages with "Source: file (page n, category c)" for the prompt
+result.chunks              # list of RetrievedChunk: .text .source .page .category .citation .scores
 result.max_dense_cosine    # best semantic match; refuse to answer when this is too low
 result.explain()           # full maths trace (print it in the "Observation" step)
 retriever.list_categories()  # lets the agent decide to narrow a search
@@ -57,15 +77,15 @@ retriever.list_categories()  # lets the agent decide to narrow a search
 ```python
 !pip install -q chromadb pypdf python-docx google-genai
 !unzip -q -o member2_retrieval.zip -d /content/project
-!unzip -q -o data_ZIP.zip -d /content/project        # gives /content/project/data/raw/...
+!unzip -q -o member1_data.zip -d /content/project    # gives data/raw/... and data/processed/chunks.jsonl
 %cd /content/project
 
 # Optional: keep the database between Colab sessions by storing it in Drive
 # from google.colab import drive; drive.mount('/content/drive')
 # import os; os.environ["CHROMA_DIR"] = "/content/drive/MyDrive/nsbm_vector_db"
 
-!python scripts/build_index.py --raw data/raw --reset      # until Member 1's chunks.jsonl is ready
-!python scripts/search_demo.py "How late can a candidate enter the examination hall?"
+!python scripts/build_index.py --reset
+!python scripts/search_demo.py "What is the minimum attendance required to sit an exam?"
 !python -m pytest -q tests
 ```
 
@@ -80,7 +100,7 @@ They go into their own collection (`nsbm_admin_gemini`), so the two models never
 ```bash
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python scripts/build_index.py --raw data/raw --reset
+python scripts/build_index.py --reset
 python scripts/search_demo.py            # interactive
 pytest -q
 ```
@@ -99,10 +119,10 @@ Add `vector_db/` to `.gitignore`, because the database is rebuilt from the docum
 ## The maths, as printed for every retrieved chunk (example values)
 
 ```
-#1  Examination Regulations_Instructions To Candidates.pdf, page 2  [Exam]
+#1  NSBM academic appeals policy.pdf, page 2  [academic_policies]
     dense : q.d = 0.6123   ||q|| = 1.0000   ||d|| = 1.0000
             cos = q.d / (||q|| x ||d||) = 0.6123   [Chroma distance 0.3877 -> 1 - dist = 0.6123]
-    sparse: TF-IDF cos = 0.2736   shared terms (q_i x d_i): hall:0.081, enter:0.067, ...
+    sparse: TF-IDF cos = 0.2736   shared terms (q_i x d_i): appeal:0.081, result:0.067, ...
     fusion: dense rank 1, sparse rank 1  ->  RRF = 1/(60+1) + 1/(60+1) = 0.03279
 ```
 

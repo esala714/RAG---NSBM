@@ -153,7 +153,7 @@ class HybridRetriever:
                     text=text,
                     source=str(meta.get("source", "unknown")),
                     category=str(meta.get("category", "general")),
-                    page=int(meta.get("page", 1)),
+                    page=int(meta.get("page", 0)),
                     scores=scores,
                 )
             )

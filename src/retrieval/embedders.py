@@ -32,6 +32,11 @@ class BaseEmbedder(ABC):
         """Return a 1-D vector. Override when the model treats queries differently."""
         return self.embed_documents([text])[0]
 
+    @property
+    def max_tokens(self) -> int | None:
+        """Longest input the model reads; text after this is silently cut off."""
+        return None
+
 
 class MiniLMEmbedder(BaseEmbedder):
     """all-MiniLM-L6-v2 (384 dimensions), run locally by Chroma's built-in ONNX runtime.
@@ -51,6 +56,10 @@ class MiniLMEmbedder(BaseEmbedder):
     @property
     def name(self) -> str:
         return "all-MiniLM-L6-v2"
+
+    @property
+    def max_tokens(self) -> int:
+        return 256  # word-piece tokens, roughly 190 English words
 
     def embed_documents(self, texts: Sequence[str]) -> np.ndarray:
         if not texts:
@@ -82,6 +91,10 @@ class GeminiEmbedder(BaseEmbedder):
     @property
     def name(self) -> str:
         return f"{self._model}-{self._dimensions}d"
+
+    @property
+    def max_tokens(self) -> int:
+        return 2048
 
     def embed_documents(self, texts: Sequence[str]) -> np.ndarray:
         return self._embed(texts, "RETRIEVAL_DOCUMENT")
