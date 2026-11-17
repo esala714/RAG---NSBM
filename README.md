@@ -104,8 +104,104 @@ Each run is also saved as a JSON file in `logs/traces/`.
 
 ## Document processing (Member 1)
 
-*To be completed by Member 1: how PDFs are extracted, cleaned and chunked, and what metadata is attached.*
+The ingestion layer (`src/ingestion/document_processor.py`) turns the raw NSBM documents in
+`data/raw/` into small, clean, labelled pieces of text (**chunks**) that Member 2 can embed.
+Every chunk keeps **which file and which page** it came from, so the agent's final answer can
+cite its source exactly.
 
+| Step | What it does |
+| --- | --- |
+| Extraction | Reads PDF files page by page with `pypdf`, DOCX files with `python-docx`, and TXT files as UTF-8. Page numbers start at 1 |
+| Cleaning | Removes null characters, turns tabs and other control whitespace into single spaces, collapses repeated spaces and keeps at most one blank line between paragraphs |
+| Chunking | Splits each page into windows of 700 words with a 100-word overlap, so a sentence cut at the end of one chunk appears whole at the start of the next. Chunking restarts on every page, so a chunk never spans two pages |
+| Labelling | Adds metadata to every chunk: source file, title, category, file type, page number, chunk index, word count and a SHA-256 hash of the file |
+| Export | Writes one chunk per line to `data/processed/chunks.jsonl`, the input for `scripts/build_index.py --chunks` |
+
+**How the chunks are calculated**
+
+With chunk size *S* = 700 words and overlap *O* = 100 words, each window starts *S − O* = 600
+words after the previous one:
+
+```math
+\text{start}_{k+1} = \text{start}_k + (S - O), \qquad \text{chunk}_k = \text{words}[\,\text{start}_k : \text{start}_k + S\,]
+```
+
+So a page with *n* words gives (an empty page gives 0 chunks):
+
+```math
+\text{chunks}(n) = \begin{cases} 1 & 1 \le n \le S \\ \left\lceil \dfrac{n - O}{S - O} \right\rceil & n > S \end{cases}
+```
+
+Check: the 8-word test sentence with *S* = 4 and *O* = 2 gives ⌈(8 − 2) / 2⌉ = 3 chunks, exactly
+what `test_chunk_overlap` expects.
+
+**What one chunk looks like**
+
+```json
+{"id": "NSBM academic appeals policy-1-1",
+ "text": "Academic Appeals Policy NSBM Green University handles academic appeals ...",
+ "metadata": {"source": "NSBM academic appeals policy.pdf", "doc_title": "NSBM academic appeals policy",
+              "category": "academic_policies", "file_type": "pdf", "page_number": 1,
+              "chunk_index": 1, "word_count": 250, "doc_hash": "a418c6f4...74a7"}}
+```
+
+| Field | Why it is there |
+| --- | --- |
+| `source`, `page_number` | The citation shown in the answer, e.g. *NSBM academic appeals policy.pdf, page 1* |
+| `category` | Lets the retriever filter by topic (examinations, registration, attendance, ...) |
+| `chunk_index` | Position of the chunk inside its page |
+| `word_count` | Quick check for empty or very short chunks |
+| `doc_hash` | SHA-256 of the whole file: it changes when a document is replaced, so re-processing can be detected |
+
+The category is chosen from keywords in the file name, and the first matching rule wins:
+*calendar* → `academic_calendar`, *registration* → `registration`, *exam / assessment / repeat* →
+`examinations`, *attendance / leave* → `attendance`, *policy / handbook / guideline* →
+`academic_policies`. Files that match nothing are labelled `general`.
+
+**Real output** for the 18 NSBM documents in `data/raw/`:
+
+```
+[OK] NSBM academic appeals policy.pdf: 3 chunks
+[OK] Examination Regulations_Instructions To Candidates.pdf: 5 chunks
+[OK] NSBM Degree Programmes_Exam By Laws _ Version 1 (17.2 onwards) _Students.pdf: 6 chunks
+[OK] NSBM student handbook 7.pdf: 27 chunks
+...
+Processed 72 chunks → data/processed/chunks.jsonl
+```
+
+| Category | Chunks |
+| --- | --- |
+| `academic_policies` | 35 |
+| `examinations` | 30 |
+| `registration` | 3 |
+| `academic_calendar` | 2 |
+| `attendance` | 2 |
+| **Total** | **72** (18 files, 265 words per chunk on average) |
+
+**Running it**
+
+```
+python -m src.ingestion.document_processor --input data/raw --output data/processed/chunks.jsonl
+python scripts/build_index.py --chunks data/processed/chunks.jsonl --reset    (hand the chunks to Member 2)
+python -m pytest -q tests/test_document_processor.py                           (5 tests, run offline)
+```
+
+**Design**
+- **One function per step:** `extract_pages` → `clean_text` → `split_into_chunks` → `process_file`.
+  Each step is tested on its own, and the tests need no real NSBM documents
+  (`test_process_file_metadata` creates a temporary text file).
+- **Page-level chunking:** chunks never cross a page boundary, so every citation points to one exact page.
+- **Safe sliding window:** the window always moves forward by at least one word, so a wrong setting
+  (overlap ≥ chunk size) can never cause an endless loop.
+- **Fault tolerance:** each file is processed inside its own `try/except`. A damaged file is reported
+  as `[SKIP] <file>: <error>` and the remaining files are still processed.
+- **Shared data contract:** the output fields match Member 2's `Chunk.from_any()` (`page_number` is
+  read as `page`, and the nested `metadata` is read automatically), so no conversion step is needed.
+
+**Known limitations**
+- Scanned PDFs (pictures of text) produce no text, because no OCR is used.
+- DOCX and TXT files have no page numbers (`page_number` is `null`); Member 2's loader treats them as page 1.
+- Categories come from file names, so a badly named file is labelled `general`.
 ---
 
 ## Embeddings and retrieval (Member 2)
