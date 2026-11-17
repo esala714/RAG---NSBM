@@ -48,7 +48,11 @@ Streamlit app (Member 4) shows the answer, sources, pages and scores
 ```
 RAG---NSBM/
   Frontend/              Streamlit user interface
+  data/
+    raw/                 The 19 NSBM source documents (PDF), one folder per topic
+    processed/           chunks.jsonl: Member 1's output, Member 2's input
   src/
+    ingestion/           PDF/DOCX extraction, cleaning, chunking and metadata
     core/                Shared data models and interfaces (ABCs)
     rag/                 Gemini client and prompt builder
     agent/               The agentic loop
@@ -155,18 +159,19 @@ what `test_chunk_overlap` expects.
 
 The category is chosen from keywords in the file name, and the first matching rule wins:
 *calendar* → `academic_calendar`, *registration* → `registration`, *exam / assessment / repeat* →
-`examinations`, *attendance / leave* → `attendance`, *policy / handbook / guideline* →
-`academic_policies`. Files that match nothing are labelled `general`.
+`examinations`, *attendance / leave* → `attendance`, *lecturer / staff* → `staff`,
+*policy / handbook / guideline* → `academic_policies`. Files that match nothing are labelled `general`.
 
-**Real output** for the 18 NSBM documents in `data/raw/`:
+**Real output** for the 19 NSBM documents in `data/raw/`:
 
 ```
 [OK] NSBM academic appeals policy.pdf: 3 chunks
 [OK] Examination Regulations_Instructions To Candidates.pdf: 5 chunks
 [OK] NSBM Degree Programmes_Exam By Laws _ Version 1 (17.2 onwards) _Students.pdf: 6 chunks
+[OK] NSBM_Lecturers_Qualifications_Updated_2026.pdf: 2 chunks
 [OK] NSBM student handbook 7.pdf: 27 chunks
 ...
-Processed 72 chunks → data/processed/chunks.jsonl
+Processed 74 chunks → data/processed/chunks.jsonl
 ```
 
 | Category | Chunks |
@@ -176,14 +181,19 @@ Processed 72 chunks → data/processed/chunks.jsonl
 | `registration` | 3 |
 | `academic_calendar` | 2 |
 | `attendance` | 2 |
-| **Total** | **72** (18 files, 265 words per chunk on average) |
+| `staff` | 2 |
+| **Total** | **74** (19 files, 267 words per chunk on average) |
+
+The processed file is committed as `data/processed/chunks.jsonl`, so Member 2 can build the
+vector store without re-running the extraction.
 
 **Running it**
 
 ```
+pip install -r requirements-member1.txt
 python -m src.ingestion.document_processor --input data/raw --output data/processed/chunks.jsonl
 python scripts/build_index.py --chunks data/processed/chunks.jsonl --reset    (hand the chunks to Member 2)
-python -m pytest -q tests/test_document_processor.py                           (5 tests, run offline)
+python -m pytest -q tests/test_document_processor.py                           (6 tests, run offline)
 ```
 
 **Design**

@@ -49,6 +49,15 @@ def test_infer_category():
     assert result == "academic_calendar"
 
 
+# Test 4b: Lecturer documents get their own category
+def test_infer_category_staff():
+    result = infer_category(
+        Path("NSBM_Lecturers_Qualifications_Updated_2026.pdf")
+    )
+
+    assert result == "staff"
+
+
 # Test 5: Metadata Extraction
 def test_process_file_metadata(tmp_path):
 

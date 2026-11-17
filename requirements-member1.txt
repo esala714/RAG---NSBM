@@ -1,0 +1,4 @@
+# Member 1 (document processing) - merge these lines into the team's requirements.txt
+pypdf>=5.0            # PDF text extraction, page by page
+python-docx>=1.1      # DOCX text extraction
+pytest>=8.0           # python -m pytest -q tests/test_document_processor.py
