@@ -367,23 +367,28 @@ Words are compared with Member 2's tokenizer (lower case, stop words removed, li
 "examinations" in an answer matches "examination" in a chunk. Citation markers such as [1] are
 removed first, and fragments shorter than 3 content words are not checked.
 
-**Results: offline TF-IDF baseline** (`python -m src.evaluation.evaluate`, k = 4, 74 chunks)
+**Results: offline TF-IDF baseline** (`python -m src.evaluation.evaluate`, k = 4,
+155 chunks of up to 180 words from 18 documents)
 
-| Metric | Score |
-| --- | --- |
-| Hit@4 | 13 / 14 = 0.929 |
-| MRR | 0.756 |
-| Context Relevance | 0.464 |
+| Metric | Score | First data version (74 chunks of up to 700 words, 19 documents) |
+| --- | --- | --- |
+| Hit@4 | 12 / 14 = 0.857 | 13 / 14 = 0.929 |
+| MRR | 0.857 | 0.756 |
+| Context Relevance | 0.518 | 0.464 |
 
-- The right document was in the top 4 for 13 of the 14 questions. The miss is q05 (repeat exam fee):
-  the fee table is one short page, and the word "examination" ranks the longer examination-rules
-  documents above it. Matching exact words is not enough on its own, which is why Member 2 adds
-  dense (meaning-based) search.
-- Context relevance is lower than the hit rate: usually only 1 or 2 of the 4 chunks contain the answer.
+- The right document was in the top 4 for 12 of the 14 questions. The misses are q05 (repeat exam
+  fee), where the word "examination" ranks the longer examination-rules documents above the one-page
+  fee table, and q14 (intake months), where chunks of the student handbook rank above the academic
+  calendar. Matching exact words is not enough on its own, which is why Member 2 adds dense
+  (meaning-based) search.
+- Smaller chunks put the right chunk higher when it is found (MRR 0.756 → 0.857) and bring less
+  off-topic text into the context (Context Relevance 0.464 → 0.518), but TF-IDF alone misses one
+  more question. The main reason for 180-word chunks is dense search (see Member 1), which this
+  offline run does not use.
 - TF-IDF scores cannot separate answerable from unanswerable questions: the parking question scores
-  0.166, above the two weakest answerable questions (0.150 and 0.101). The agent's refusal threshold (`min_score`)
-  should therefore be chosen from the dense cosine scores of the `--retriever hybrid` run, between
-  the two "top score" values that the report prints.
+  0.175, above three answerable questions (0.172, 0.154 and 0.134). The agent's refusal threshold
+  (`min_score`) should therefore be chosen from the dense cosine scores of the `--retriever hybrid`
+  run, between the two "top score" values that the report prints.
 
 *Hybrid retrieval and agent answer results: to be added after running the commands below.*
 
