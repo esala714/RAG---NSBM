@@ -57,6 +57,7 @@ RAG---NSBM/
     rag/                 Gemini client and prompt builder
     agent/               The agentic loop
     retrieval/           Embeddings, Chroma vector store and hybrid search
+    evaluation/          Ground-truth questions, metrics and the evaluation runner
    scripts/               Build the vector store and run search demos
    tests/                 Test retrievers used before the vector store is connected
   run_demo.py            Command-line demo of the agent
@@ -325,8 +326,82 @@ The `AcademicAgent` (`src/agent/academic_agent.py`) runs an explainable agentic 
 
 ## Evaluation
 
-*To be completed: the ground-truth dataset and how Context Relevance, Groundedness
-(Faithfulness) and Answer Relevance are calculated, with results.*
+The evaluation module (`src/evaluation/`) checks the system against a hand-checked set of questions.
+
+**Ground truth** (`src/evaluation/ground_truth.json`): 17 questions
+- **14 answerable questions**, at least one for every document category. Each one names the
+  document that holds the answer (`expected_sources`), the terms a relevant chunk must contain
+  (`relevant_terms`), the keywords a correct answer must contain (`expected_keywords`) and a
+  reference answer. A test confirms that every term really
+  appears in its source document, so a low score is the system's fault, not the dataset's.
+- **3 unanswerable questions** (canteen menu, a cricket result, parking fees): the agent should refuse.
+
+**Metrics** (`src/evaluation/metrics.py`)
+
+| Metric | What it measures | How it is calculated |
+| --- | --- | --- |
+| Hit@k | Did retrieval find the right document? | 1 if any of the top *k* chunks comes from an expected source, else 0 |
+| MRR | How high was the right document ranked? | Mean of 1 / rank of the first chunk from an expected source |
+| Context Relevance | How much of the context is on topic? | Chunks containing a relevant term / chunks retrieved |
+| Groundedness (Faithfulness) | Is every claim in the answer backed by the context? | Answer sentences with at least 60% of their content words in the retrieved chunks / sentences checked |
+| Answer Relevance | Does the answer contain what was asked for? | Expected keywords found in the answer / expected keywords |
+| Refusal accuracy | Does the agent refuse when it should? | Unanswerable questions refused / unanswerable questions |
+
+```math
+\text{MRR} = \frac{1}{|Q|} \sum_{q \in Q} \frac{1}{\text{rank}_q}, \qquad
+\text{Groundedness} = \frac{\#\{\, s \in \text{answer} : \text{support}(s) \ge 0.6 \,\}}{\#\{\, s \in \text{answer} \,\}}, \qquad
+\text{support}(s) = \frac{|\text{words}(s) \cap \text{words}(\text{context})|}{|\text{words}(s)|}
+```
+
+Words are compared with Member 2's tokenizer (lower case, stop words removed, light stemming), so
+"examinations" in an answer matches "examination" in a chunk. Citation markers such as [1] are
+removed first, and fragments shorter than 3 content words are not checked.
+
+**Results: offline TF-IDF baseline** (`python -m src.evaluation.evaluate`, k = 4, 74 chunks)
+
+| Metric | Score |
+| --- | --- |
+| Hit@4 | 13 / 14 = 0.929 |
+| MRR | 0.756 |
+| Context Relevance | 0.464 |
+
+- The right document was in the top 4 for 13 of the 14 questions. The miss is q05 (repeat exam fee):
+  the fee table is one short page, and the word "examination" ranks the longer examination-rules
+  documents above it. Matching exact words is not enough on its own, which is why Member 2 adds
+  dense (meaning-based) search.
+- Context relevance is lower than the hit rate: usually only 1 or 2 of the 4 chunks contain the answer.
+- TF-IDF scores cannot separate answerable from unanswerable questions: the parking question scores
+  0.166, above the two weakest answerable questions (0.150 and 0.101). The agent's refusal threshold (`min_score`)
+  should therefore be chosen from the dense cosine scores of the `--retriever hybrid` run, between
+  the two "top score" values that the report prints.
+
+*Hybrid retrieval and agent answer results: to be added after running the commands below.*
+
+**Running it**
+
+```
+python -m src.evaluation.evaluate                                   (offline TF-IDF baseline, no API key)
+python -m src.evaluation.evaluate --retriever hybrid                (Member 2's Chroma store: run scripts/build_index.py first)
+python -m src.evaluation.evaluate --retriever hybrid --with-agent   (answers from Gemini: needs GEMINI_API_KEY in .env)
+python -m pytest -q tests/test_evaluation.py                        (12 tests, run offline)
+```
+
+Each run prints a table with one row per question and saves the full results (every retrieved
+chunk, every answer sentence and its support score) as JSON in `logs/evaluation/`.
+
+**Design**
+- **Same interface as the agent:** the evaluation only calls `BaseRetriever.search()`, exactly as
+  the agent does. `--retriever hybrid` uses Member 2's `HybridRetriever` as it is (its score is the
+  dense cosine), and `TfidfRetriever` is an offline baseline over Member 1's chunks.
+- **Dependency Injection:** the retriever and the agent are passed in, so the tests use
+  `FakeRetriever` and a scripted agent, and run without Chroma or Gemini.
+- **Fair averages:** questions where Gemini was unavailable are reported and left out of the
+  averages instead of being counted as refusals.
+
+**Known limitations**
+- Groundedness and answer relevance compare words, not meaning: a correct paraphrase can score
+  lower, and a sentence can reuse words from the context and still be wrong.
+- 17 questions is a small dataset, although it covers every document category.
 
 ---
 
