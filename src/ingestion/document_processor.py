@@ -13,6 +13,12 @@ from pypdf import PdfReader
 
 SUPPORTED = {".pdf", ".docx", ".txt"}
 
+# MiniLM (Member 2's embedding model) reads only the first 256 word-pieces of a chunk,
+# about 192 English words. 180-word chunks fit inside that limit, so dense search sees
+# every word; the 40-word overlap keeps a sentence cut at a chunk edge whole in the next chunk.
+CHUNK_SIZE = 180
+CHUNK_OVERLAP = 40
+
 def infer_category(path: Path) -> str:
     """Infer a broad category from the filename; edit mapping for your dataset."""
     name = path.stem.lower().replace("-", " ").replace("_", " ")
@@ -52,7 +58,7 @@ def extract_pages(path: Path) -> list[tuple[int, str]]:
         return [(0, clean_text(path.read_text(encoding="utf-8", errors="replace")))]
     return []
 
-def split_into_chunks(text: str, chunk_size: int = 700, overlap: int = 100) -> list[str]:
+def split_into_chunks(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
     """Split by words, retaining a small overlap to preserve context."""
     words = text.split()
     if not words:
@@ -67,7 +73,7 @@ def split_into_chunks(text: str, chunk_size: int = 700, overlap: int = 100) -> l
         start = max(end - overlap, start + 1)
     return chunks
 
-def process_file(path: Path, chunk_size: int = 700, overlap: int = 100) -> list[dict]:
+def process_file(path: Path, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[dict]:
     pages = extract_pages(path)
     records = []
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -89,13 +95,14 @@ def process_file(path: Path, chunk_size: int = 700, overlap: int = 100) -> list[
             })
     return records
 
-def process_directory(input_dir: Path, output_file: Path) -> int:
+def process_directory(input_dir: Path, output_file: Path,
+                      chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> int:
     output_file.parent.mkdir(parents=True, exist_ok=True)
     all_records = []
     for path in sorted(input_dir.rglob("*")):
         if path.is_file() and path.suffix.lower() in SUPPORTED:
             try:
-                records = process_file(path)
+                records = process_file(path, chunk_size, overlap)
                 all_records.extend(records)
                 print(f"[OK] {path.name}: {len(records)} chunks")
             except Exception as exc:
@@ -110,8 +117,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, default=Path("data/raw"))
     parser.add_argument("--output", type=Path, default=Path("data/processed/chunks.jsonl"))
+    parser.add_argument("--chunk-size", type=int, default=CHUNK_SIZE, help="words per chunk")
+    parser.add_argument("--overlap", type=int, default=CHUNK_OVERLAP, help="words shared by neighbouring chunks")
     args = parser.parse_args()
-    process_directory(args.input, args.output)
+    process_directory(args.input, args.output, args.chunk_size, args.overlap)
 
 if __name__ == "__main__":
     main()

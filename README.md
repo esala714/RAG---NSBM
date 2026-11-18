@@ -118,13 +118,13 @@ cite its source exactly.
 | --- | --- |
 | Extraction | Reads PDF files page by page with `pypdf`, DOCX files with `python-docx`, and TXT files as UTF-8. Page numbers start at 1 |
 | Cleaning | Removes null characters, turns tabs and other control whitespace into single spaces, collapses repeated spaces and keeps at most one blank line between paragraphs |
-| Chunking | Splits each page into windows of 700 words with a 100-word overlap, so a sentence cut at the end of one chunk appears whole at the start of the next. Chunking restarts on every page, so a chunk never spans two pages |
+| Chunking | Splits each page into windows of 180 words with a 40-word overlap, so a sentence cut at the end of one chunk appears whole at the start of the next. Chunking restarts on every page, so a chunk never spans two pages |
 | Labelling | Adds metadata to every chunk: source file, title, category, file type, page number, chunk index, word count and a SHA-256 hash of the file |
 | Export | Writes one chunk per line to `data/processed/chunks.jsonl`, the input for `scripts/build_index.py --chunks` |
 
 **How the chunks are calculated**
 
-With chunk size *S* = 700 words and overlap *O* = 100 words, each window starts *S − O* = 600
+With chunk size *S* = 180 words and overlap *O* = 40 words, each window starts *S − O* = 140
 words after the previous one:
 
 ```math
@@ -140,6 +140,12 @@ So a page with *n* words gives (an empty page gives 0 chunks):
 Check: the 8-word test sentence with *S* = 4 and *O* = 2 gives ⌈(8 − 2) / 2⌉ = 3 chunks, exactly
 what `test_chunk_overlap` expects.
 
+**Why 180 words:** Member 2's embedding model (MiniLM) reads only the first 256 word-pieces of a
+chunk, about 192 words, and ignores the rest. With the first setting (700 words, 100 overlap)
+46 of the 74 chunks were longer than that, so dense search never saw most of their text.
+180-word chunks fit inside the limit, and the 40-word overlap still keeps sentences whole.
+Both values can be changed with `--chunk-size` and `--overlap`.
+
 **What one chunk looks like**
 
 ```json
@@ -147,7 +153,7 @@ what `test_chunk_overlap` expects.
  "text": "Academic Appeals Policy NSBM Green University handles academic appeals ...",
  "metadata": {"source": "NSBM academic appeals policy.pdf", "doc_title": "NSBM academic appeals policy",
               "category": "academic_policies", "file_type": "pdf", "page_number": 1,
-              "chunk_index": 1, "word_count": 250, "doc_hash": "a418c6f4...74a7"}}
+              "chunk_index": 1, "word_count": 180, "doc_hash": "a418c6f4...74a7"}}
 ```
 
 | Field | Why it is there |
@@ -166,24 +172,24 @@ The category is chosen from keywords in the file name, and the first matching ru
 **Real output** for the 19 NSBM documents in `data/raw/`:
 
 ```
-[OK] NSBM academic appeals policy.pdf: 3 chunks
-[OK] Examination Regulations_Instructions To Candidates.pdf: 5 chunks
-[OK] NSBM Degree Programmes_Exam By Laws _ Version 1 (17.2 onwards) _Students.pdf: 6 chunks
-[OK] NSBM_Lecturers_Qualifications_Updated_2026.pdf: 2 chunks
-[OK] NSBM student handbook 7.pdf: 27 chunks
+[OK] NSBM academic appeals policy.pdf: 5 chunks
+[OK] Examination Regulations_Instructions To Candidates.pdf: 12 chunks
+[OK] NSBM Degree Programmes_Exam By Laws _ Version 1 (17.2 onwards) _Students.pdf: 7 chunks
+[OK] NSBM_Lecturers_Qualifications_Updated_2026.pdf: 5 chunks
+[OK] NSBM student handbook 7.pdf: 80 chunks
 ...
-Processed 74 chunks → data/processed/chunks.jsonl
+Processed 159 chunks → data/processed/chunks.jsonl
 ```
 
 | Category | Chunks |
 | --- | --- |
-| `academic_policies` | 35 |
-| `examinations` | 30 |
-| `registration` | 3 |
-| `academic_calendar` | 2 |
-| `attendance` | 2 |
-| `staff` | 2 |
-| **Total** | **74** (19 files, 267 words per chunk on average) |
+| `academic_policies` | 96 |
+| `examinations` | 45 |
+| `registration` | 6 |
+| `staff` | 5 |
+| `attendance` | 4 |
+| `academic_calendar` | 3 |
+| **Total** | **159** (19 files, 144 words per chunk on average) |
 
 The processed file is committed as `data/processed/chunks.jsonl`, so Member 2 can build the
 vector store without re-running the extraction.
@@ -194,7 +200,7 @@ vector store without re-running the extraction.
 pip install -r requirements-member1.txt
 python -m src.ingestion.document_processor --input data/raw --output data/processed/chunks.jsonl
 python scripts/build_index.py --chunks data/processed/chunks.jsonl --reset    (hand the chunks to Member 2)
-python -m pytest -q tests/test_document_processor.py                           (6 tests, run offline)
+python -m pytest -q tests/test_document_processor.py                           (7 tests, run offline)
 ```
 
 **Design**
