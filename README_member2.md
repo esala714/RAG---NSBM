@@ -93,9 +93,8 @@ retriever.list_categories()  # lets the agent decide to narrow a search
 ## Run in Google Colab
 
 ```python
-!pip install -q chromadb pypdf python-docx google-genai
-!git clone https://github.com/esala714/RAG---NSBM.git /content/project
-!unzip -q -o member1_data.zip -d /content/project    # gives data/raw/... and data/processed/chunks.jsonl
+!pip install -q chromadb pypdf python-docx google-genai python-dotenv
+!git clone https://github.com/esala714/RAG---NSBM.git /content/project   # includes data/raw and data/processed
 %cd /content/project
 
 # Optional: keep the database between Colab sessions by storing it in Drive
@@ -123,16 +122,19 @@ python scripts/search_demo.py            # interactive
 pytest -q
 ```
 
-## Settings (add these to the team's `env.example`)
+## Settings (in the team's `env.example`)
+
+The packages are in the team's `requirements.txt`. The retrieval settings are in `env.example`; they are the defaults, so a `.env` file needs them only to change something:
 
 ```
-EMBEDDING_BACKEND=minilm      # minilm | gemini
+# EMBEDDING_BACKEND: minilm (free, offline) or gemini (uses GEMINI_API_KEY)
+EMBEDDING_BACKEND=minilm
 CHROMA_DIR=vector_db
-RETRIEVAL_MODE=hybrid         # hybrid | dense | sparse  (compare these in the evaluation)
-GEMINI_API_KEY=
+# RETRIEVAL_MODE: hybrid, dense or sparse (compare these in the evaluation)
+RETRIEVAL_MODE=hybrid
 ```
 
-Add `vector_db/` to `.gitignore`, because the database is rebuilt from the documents.
+`vector_db/` is in `.gitignore`, because the database is rebuilt from the documents.
 
 ## The maths, as printed for every retrieved chunk (example values)
 
