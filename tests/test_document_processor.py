@@ -33,6 +33,16 @@ def test_chunk_overlap():
     assert chunks[2] == "five six seven eight"
 
 
+# Test 2b: Default chunks fit what MiniLM can read (about 192 words)
+def test_default_chunks_fit_minilm():
+    words = [f"w{i}" for i in range(1000)]
+
+    chunks = split_into_chunks(" ".join(words))
+
+    assert all(len(c.split()) <= 180 for c in chunks)
+    assert chunks[1].split()[0] == "w140"   # 180 - 40 overlap: the next chunk starts 140 words on
+
+
 # Test 3: Empty Text
 def test_empty_text():
     result = split_into_chunks("")

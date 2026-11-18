@@ -49,7 +49,7 @@ Streamlit app (Member 4) shows the answer, sources, pages and scores
 RAG---NSBM/
   Frontend/              Streamlit user interface
   data/
-    raw/                 The 19 NSBM source documents (PDF), one folder per topic
+    raw/                 The 18 NSBM source documents (PDF), one folder per topic
     processed/           chunks.jsonl: Member 1's output, Member 2's input
   src/
     ingestion/           PDF/DOCX extraction, cleaning, chunking and metadata
@@ -57,6 +57,7 @@ RAG---NSBM/
     rag/                 Gemini client and prompt builder
     agent/               The agentic loop
     retrieval/           Embeddings, Chroma vector store and hybrid search
+    evaluation/          Ground-truth questions, metrics and the evaluation runner
    scripts/               Build the vector store and run search demos
    tests/                 Test retrievers used before the vector store is connected
   run_demo.py            Command-line demo of the agent
@@ -117,13 +118,13 @@ cite its source exactly.
 | --- | --- |
 | Extraction | Reads PDF files page by page with `pypdf`, DOCX files with `python-docx`, and TXT files as UTF-8. Page numbers start at 1 |
 | Cleaning | Removes null characters, turns tabs and other control whitespace into single spaces, collapses repeated spaces and keeps at most one blank line between paragraphs |
-| Chunking | Splits each page into windows of 700 words with a 100-word overlap, so a sentence cut at the end of one chunk appears whole at the start of the next. Chunking restarts on every page, so a chunk never spans two pages |
+| Chunking | Splits each page into windows of 180 words with a 40-word overlap, so a sentence cut at the end of one chunk appears whole at the start of the next. Chunking restarts on every page, so a chunk never spans two pages |
 | Labelling | Adds metadata to every chunk: source file, title, category, file type, page number, chunk index, word count and a SHA-256 hash of the file |
 | Export | Writes one chunk per line to `data/processed/chunks.jsonl`, the input for `scripts/build_index.py --chunks` |
 
 **How the chunks are calculated**
 
-With chunk size *S* = 700 words and overlap *O* = 100 words, each window starts *S − O* = 600
+With chunk size *S* = 180 words and overlap *O* = 40 words, each window starts *S − O* = 140
 words after the previous one:
 
 ```math
@@ -139,6 +140,12 @@ So a page with *n* words gives (an empty page gives 0 chunks):
 Check: the 8-word test sentence with *S* = 4 and *O* = 2 gives ⌈(8 − 2) / 2⌉ = 3 chunks, exactly
 what `test_chunk_overlap` expects.
 
+**Why 180 words:** Member 2's embedding model (MiniLM) reads only the first 256 word-pieces of a
+chunk, about 192 words, and ignores the rest. With the first setting (700 words, 100 overlap)
+46 of the 74 chunks were longer than that, so dense search never saw most of their text.
+180-word chunks fit inside the limit, and the 40-word overlap still keeps sentences whole.
+Both values can be changed with `--chunk-size` and `--overlap`.
+
 **What one chunk looks like**
 
 ```json
@@ -146,7 +153,7 @@ what `test_chunk_overlap` expects.
  "text": "Academic Appeals Policy NSBM Green University handles academic appeals ...",
  "metadata": {"source": "NSBM academic appeals policy.pdf", "doc_title": "NSBM academic appeals policy",
               "category": "academic_policies", "file_type": "pdf", "page_number": 1,
-              "chunk_index": 1, "word_count": 250, "doc_hash": "a418c6f4...74a7"}}
+              "chunk_index": 1, "word_count": 180, "doc_hash": "a418c6f4...74a7"}}
 ```
 
 | Field | Why it is there |
@@ -162,30 +169,34 @@ The category is chosen from keywords in the file name, and the first matching ru
 `examinations`, *attendance / leave* → `attendance`, *lecturer / staff* → `staff`,
 *policy / handbook / guideline* → `academic_policies`. Files that match nothing are labelled `general`.
 
-**Real output** for the 19 NSBM documents in `data/raw/`:
+**Real output** for the 18 NSBM documents in `data/raw/`:
 
 ```
-[OK] NSBM academic appeals policy.pdf: 3 chunks
-[OK] Examination Regulations_Instructions To Candidates.pdf: 5 chunks
-[OK] NSBM Degree Programmes_Exam By Laws _ Version 1 (17.2 onwards) _Students.pdf: 6 chunks
-[OK] NSBM_Lecturers_Qualifications_Updated_2026.pdf: 2 chunks
-[OK] NSBM student handbook 7.pdf: 27 chunks
+[OK] NSBM academic appeals policy.pdf: 5 chunks
+[OK] Examination Regulations_Instructions To Candidates.pdf: 12 chunks
+[OK] NSBM Degree Programmes_Exam By Laws _ Version 1 (17.2 onwards) _Students.pdf: 7 chunks
+[OK] NSBM_Lecturers_Qualifications_Updated_2026.pdf: 5 chunks
+[OK] NSBM student handbook 7.pdf: 80 chunks
 ...
-Processed 74 chunks → data/processed/chunks.jsonl
+Processed 155 chunks → data/processed/chunks.jsonl
 ```
 
 | Category | Chunks |
 | --- | --- |
-| `academic_policies` | 35 |
-| `examinations` | 30 |
-| `registration` | 3 |
-| `academic_calendar` | 2 |
-| `attendance` | 2 |
-| `staff` | 2 |
-| **Total** | **74** (19 files, 267 words per chunk on average) |
+| `academic_policies` | 92 |
+| `examinations` | 45 |
+| `registration` | 6 |
+| `staff` | 5 |
+| `attendance` | 4 |
+| `academic_calendar` | 3 |
+| **Total** | **155** (18 files, 145 words per chunk on average) |
 
 The processed file is committed as `data/processed/chunks.jsonl`, so Member 2 can build the
 vector store without re-running the extraction.
+
+An AI-written GPA summary that was in the first version of `data/raw/` has been removed: the
+official Exam By-Laws (section 3, page 6) already give the GPA formula and the grading scale, so
+answers about GPA now cite the university's own document.
 
 **Running it**
 
@@ -193,7 +204,7 @@ vector store without re-running the extraction.
 pip install -r requirements-member1.txt
 python -m src.ingestion.document_processor --input data/raw --output data/processed/chunks.jsonl
 python scripts/build_index.py --chunks data/processed/chunks.jsonl --reset    (hand the chunks to Member 2)
-python -m pytest -q tests/test_document_processor.py                           (6 tests, run offline)
+python -m pytest -q tests/test_document_processor.py                           (7 tests, run offline)
 ```
 
 **Design**
@@ -325,8 +336,87 @@ The `AcademicAgent` (`src/agent/academic_agent.py`) runs an explainable agentic 
 
 ## Evaluation
 
-*To be completed: the ground-truth dataset and how Context Relevance, Groundedness
-(Faithfulness) and Answer Relevance are calculated, with results.*
+The evaluation module (`src/evaluation/`) checks the system against a hand-checked set of questions.
+
+**Ground truth** (`src/evaluation/ground_truth.json`): 17 questions
+- **14 answerable questions**, at least one for every document category. Each one names the
+  document that holds the answer (`expected_sources`), the terms a relevant chunk must contain
+  (`relevant_terms`), the keywords a correct answer must contain (`expected_keywords`) and a
+  reference answer. A test confirms that every term really
+  appears in its source document, so a low score is the system's fault, not the dataset's.
+- **3 unanswerable questions** (canteen menu, a cricket result, parking fees): the agent should refuse.
+
+**Metrics** (`src/evaluation/metrics.py`)
+
+| Metric | What it measures | How it is calculated |
+| --- | --- | --- |
+| Hit@k | Did retrieval find the right document? | 1 if any of the top *k* chunks comes from an expected source, else 0 |
+| MRR | How high was the right document ranked? | Mean of 1 / rank of the first chunk from an expected source |
+| Context Relevance | How much of the context is on topic? | Chunks containing a relevant term / chunks retrieved |
+| Groundedness (Faithfulness) | Is every claim in the answer backed by the context? | Answer sentences with at least 60% of their content words in the retrieved chunks / sentences checked |
+| Answer Relevance | Does the answer contain what was asked for? | Expected keywords found in the answer / expected keywords |
+| Refusal accuracy | Does the agent refuse when it should? | Unanswerable questions refused / unanswerable questions |
+
+```math
+\text{MRR} = \frac{1}{|Q|} \sum_{q \in Q} \frac{1}{\text{rank}_q}, \qquad
+\text{Groundedness} = \frac{\#\{\, s \in \text{answer} : \text{support}(s) \ge 0.6 \,\}}{\#\{\, s \in \text{answer} \,\}}, \qquad
+\text{support}(s) = \frac{|\text{words}(s) \cap \text{words}(\text{context})|}{|\text{words}(s)|}
+```
+
+Words are compared with Member 2's tokenizer (lower case, stop words removed, light stemming), so
+"examinations" in an answer matches "examination" in a chunk. Citation markers such as [1] are
+removed first, and fragments shorter than 3 content words are not checked.
+
+**Results: offline TF-IDF baseline** (`python -m src.evaluation.evaluate`, k = 4,
+155 chunks of up to 180 words from 18 documents)
+
+| Metric | Score | First data version (74 chunks of up to 700 words, 19 documents) |
+| --- | --- | --- |
+| Hit@4 | 12 / 14 = 0.857 | 13 / 14 = 0.929 |
+| MRR | 0.857 | 0.756 |
+| Context Relevance | 0.518 | 0.464 |
+
+- The right document was in the top 4 for 12 of the 14 questions. The misses are q05 (repeat exam
+  fee), where the word "examination" ranks the longer examination-rules documents above the one-page
+  fee table, and q14 (intake months), where chunks of the student handbook rank above the academic
+  calendar. Matching exact words is not enough on its own, which is why Member 2 adds dense
+  (meaning-based) search.
+- Smaller chunks put the right chunk higher when it is found (MRR 0.756 → 0.857) and bring less
+  off-topic text into the context (Context Relevance 0.464 → 0.518), but TF-IDF alone misses one
+  more question. The main reason for 180-word chunks is dense search (see Member 1), which this
+  offline run does not use.
+- TF-IDF scores cannot separate answerable from unanswerable questions: the parking question scores
+  0.175, above three answerable questions (0.172, 0.154 and 0.134). The agent's refusal threshold
+  (`min_score`) should therefore be chosen from the dense cosine scores of the `--retriever hybrid`
+  run, between the two "top score" values that the report prints.
+
+*Hybrid retrieval and agent answer results: to be added after running the commands below.*
+
+**Running it**
+
+```
+python -m src.evaluation.evaluate                                   (offline TF-IDF baseline, no API key)
+python -m src.evaluation.evaluate --retriever hybrid                (Member 2's Chroma store: run scripts/build_index.py first)
+python -m src.evaluation.evaluate --retriever hybrid --with-agent   (answers from Gemini: needs GEMINI_API_KEY in .env)
+python -m pytest -q tests/test_evaluation.py                        (12 tests, run offline)
+```
+
+Each run prints a table with one row per question and saves the full results (every retrieved
+chunk, every answer sentence and its support score) as JSON in `logs/evaluation/`.
+
+**Design**
+- **Same interface as the agent:** the evaluation only calls `BaseRetriever.search()`, exactly as
+  the agent does. `--retriever hybrid` uses Member 2's `HybridRetriever` as it is (its score is the
+  dense cosine), and `TfidfRetriever` is an offline baseline over Member 1's chunks.
+- **Dependency Injection:** the retriever and the agent are passed in, so the tests use
+  `FakeRetriever` and a scripted agent, and run without Chroma or Gemini.
+- **Fair averages:** questions where Gemini was unavailable are reported and left out of the
+  averages instead of being counted as refusals.
+
+**Known limitations**
+- Groundedness and answer relevance compare words, not meaning: a correct paraphrase can score
+  lower, and a sentence can reuse words from the context and still be wrong.
+- 17 questions is a small dataset, although it covers every document category.
 
 ---
 
