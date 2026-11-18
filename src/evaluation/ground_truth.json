@@ -57,10 +57,10 @@
     "id": "q07",
     "question": "How is GPA calculated at NSBM?",
     "answerable": true,
-    "expected_sources": ["Here are the standard guidelines for calculating your GPA (G (1).pdf"],
+    "expected_sources": ["NSBM Degree Programmes_Exam By Laws _ Version 1 (17.2 onwards) _Students.pdf", "Criteria for Assessment of MBA Programmes (NSBM).pdf", "Criteria for Assessment of MBS Programmes (NSBM).pdf", "Criteria for Assessment of Postgraduate Diploma  Programmes (NSBM).pdf"],
     "relevant_terms": ["grade point", "credits"],
     "expected_keywords": ["grade point", "credit"],
-    "reference_answer": "GPA is a credit-weighted average on a 4.00 scale: the sum of (grade point x module credits) divided by the total credits."
+    "reference_answer": "GPA is the average of the module grade points weighted by their credits (sum of credits x grade point, divided by the total credits), excluding non-credit modules; grade points run from 0 to 4.0."
   },
   {
     "id": "q08",

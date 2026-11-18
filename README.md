@@ -49,7 +49,7 @@ Streamlit app (Member 4) shows the answer, sources, pages and scores
 RAG---NSBM/
   Frontend/              Streamlit user interface
   data/
-    raw/                 The 19 NSBM source documents (PDF), one folder per topic
+    raw/                 The 18 NSBM source documents (PDF), one folder per topic
     processed/           chunks.jsonl: Member 1's output, Member 2's input
   src/
     ingestion/           PDF/DOCX extraction, cleaning, chunking and metadata
@@ -169,7 +169,7 @@ The category is chosen from keywords in the file name, and the first matching ru
 `examinations`, *attendance / leave* → `attendance`, *lecturer / staff* → `staff`,
 *policy / handbook / guideline* → `academic_policies`. Files that match nothing are labelled `general`.
 
-**Real output** for the 19 NSBM documents in `data/raw/`:
+**Real output** for the 18 NSBM documents in `data/raw/`:
 
 ```
 [OK] NSBM academic appeals policy.pdf: 5 chunks
@@ -178,21 +178,25 @@ The category is chosen from keywords in the file name, and the first matching ru
 [OK] NSBM_Lecturers_Qualifications_Updated_2026.pdf: 5 chunks
 [OK] NSBM student handbook 7.pdf: 80 chunks
 ...
-Processed 159 chunks → data/processed/chunks.jsonl
+Processed 155 chunks → data/processed/chunks.jsonl
 ```
 
 | Category | Chunks |
 | --- | --- |
-| `academic_policies` | 96 |
+| `academic_policies` | 92 |
 | `examinations` | 45 |
 | `registration` | 6 |
 | `staff` | 5 |
 | `attendance` | 4 |
 | `academic_calendar` | 3 |
-| **Total** | **159** (19 files, 144 words per chunk on average) |
+| **Total** | **155** (18 files, 145 words per chunk on average) |
 
 The processed file is committed as `data/processed/chunks.jsonl`, so Member 2 can build the
 vector store without re-running the extraction.
+
+An AI-written GPA summary that was in the first version of `data/raw/` has been removed: the
+official Exam By-Laws (section 3, page 6) already give the GPA formula and the grading scale, so
+answers about GPA now cite the university's own document.
 
 **Running it**
 
