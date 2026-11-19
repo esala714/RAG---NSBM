@@ -4,6 +4,7 @@
     "question": "How late can a candidate enter the examination room after the exam has started?",
     "answerable": true,
     "expected_sources": ["Examination Regulations_Instructions To Candidates.pdf"],
+    "context": "Candidates shall be admitted to the examination room up to thirty minutes after the official start of the examination, but not normally thereafter.",
     "relevant_terms": ["thirty minutes", "admitted to the examination room"],
     "expected_keywords": ["thirty minutes", "start"],
     "reference_answer": "Candidates may be admitted up to thirty minutes after the official start of the examination, and no additional time is given for arriving late."
@@ -13,6 +14,7 @@
     "question": "Can I take my mobile phone into the examination room?",
     "answerable": true,
     "expected_sources": ["Examination Regulations_Instructions To Candidates.pdf"],
+    "context": "A mobile ‘phone or any other communication device is not permitted into the examination room.",
     "relevant_terms": ["mobile", "communication device"],
     "expected_keywords": ["mobile", "not permitted"],
     "reference_answer": "No. A mobile phone or any other communication device is not permitted into the examination room; it must be left at the point the Supervisor designates."
@@ -22,6 +24,7 @@
     "question": "What is the minimum attendance students must maintain for lectures and tutorials?",
     "answerable": true,
     "expected_sources": ["NSBM attendance policy.pdf"],
+    "context": "students to maintain a minimum attendance of 75% for lectures, tutorials, and practical/laboratory sessions per module",
     "relevant_terms": ["75%", "minimum attendance"],
     "expected_keywords": ["75%"],
     "reference_answer": "Students are generally expected to maintain at least 75% attendance for lectures, tutorials and practical sessions in each module."
@@ -31,6 +34,7 @@
     "question": "How many days after an exam do I have to submit an extenuating circumstances claim?",
     "answerable": true,
     "expected_sources": ["Revision to NSBM EC Guidelines to students from Aug2023.pdf"],
+    "context": "Examination Submit no later than 14 working days following the exam date. Claims are reviewed by the EC Board.",
     "relevant_terms": ["14 working days", "extenuating circumstances"],
     "expected_keywords": ["14 working days"],
     "reference_answer": "The EC form with evidence must be submitted no later than 14 working days after the exam date; claims are reviewed by the EC Board."
@@ -40,6 +44,7 @@
     "question": "How much is the repeat examination fee for an NSBM degree programme?",
     "answerable": true,
     "expected_sources": ["Revision of Examination Payments Jan2023_Students.pdf"],
+    "context": "Repeat Examination NSBM (Examination OR Course Work) (Year 01 to Year 04) Rs. 3000/-",
     "relevant_terms": ["repeat examination", "3000"],
     "expected_keywords": ["3000"],
     "reference_answer": "A repeat examination or coursework for an NSBM degree (Year 1 to Year 4) costs Rs. 3000, from 2 January 2023."
@@ -49,6 +54,7 @@
     "question": "How long do I have to submit repeat coursework after downloading it?",
     "answerable": true,
     "expected_sources": ["Repeat coursework Procedure.pdf"],
+    "context": "on or before the 14 th day upon the downloaded date of coursework from the portal. (You only have 2 weeks from the downloaded date of coursework.)",
     "relevant_terms": ["14 th day", "2 weeks"],
     "expected_keywords": ["14", "download"],
     "reference_answer": "Repeat coursework must be submitted on or before the 14th day after the date it was downloaded from the portal (two weeks)."
@@ -58,6 +64,7 @@
     "question": "How is GPA calculated at NSBM?",
     "answerable": true,
     "expected_sources": ["NSBM Degree Programmes_Exam By Laws _ Version 1 (17.2 onwards) _Students.pdf", "Criteria for Assessment of MBA Programmes (NSBM).pdf", "Criteria for Assessment of MBS Programmes (NSBM).pdf", "Criteria for Assessment of Postgraduate Diploma  Programmes (NSBM).pdf"],
+    "context": "average of the Module Grade Points (GP) weighted by the credit allocation is calculated across all modules, excluding any Non-Credit modules",
     "relevant_terms": ["grade point", "credits"],
     "expected_keywords": ["grade point", "credit"],
     "reference_answer": "GPA is the average of the module grade points weighted by their credits (sum of credits x grade point, divided by the total credits), excluding non-credit modules; grade points run from 0 to 4.0."
@@ -67,6 +74,7 @@
     "question": "What is the minimum GPA needed for First Class Honours?",
     "answerable": true,
     "expected_sources": ["NSBM Degree Programmes_Exam By Laws _ Version 1 (17.2 onwards) _Students.pdf"],
+    "context": "A student who obtains a grade below “C” for any module will not be awarded with a first class honours 4. Obtains a minimum GPA of 3.7",
     "relevant_terms": ["first class honours", "3.7"],
     "expected_keywords": ["3.7"],
     "reference_answer": "A minimum GPA of 3.7, with no grade below C at the first attempt and an A or better in at least half of the courses, completed within four academic years."
@@ -76,6 +84,7 @@
     "question": "What overall mark is needed to pass a module?",
     "answerable": true,
     "expected_sources": ["NSBM Assessment Guideline.pdf"],
+    "context": "Overall Pass Mark: To pass a module, students typically need an overall Final Mark of at least 50% (combining CA and exam marks).",
     "relevant_terms": ["pass mark", "50%"],
     "expected_keywords": ["50%"],
     "reference_answer": "Students typically need an overall final mark of at least 50%, combining continuous assessment and exam marks."
@@ -85,6 +94,7 @@
     "question": "On what grounds can I appeal my examination results?",
     "answerable": true,
     "expected_sources": ["NSBM academic appeals policy.pdf"],
+    "context": "A result appeal is not a simple re-marking of academic judgment; it is typically only considered on the following grounds: • Administrative or Clerical Error.",
     "relevant_terms": ["appeal", "clerical error", "procedural irregularity"],
     "expected_keywords": ["administrative", "extenuating", "procedural"],
     "reference_answer": "Appeals are considered for administrative or clerical errors, documented extenuating circumstances, or procedural irregularities in how the assessment was conducted."
@@ -94,6 +104,7 @@
     "question": "What A/L results do I need to enter an undergraduate programme?",
     "answerable": true,
     "expected_sources": ["NSBM Course registration guideline.pdf", "NSBM student registration policy.pdf"],
+    "context": "Usually require 3 simple passes (S) or better in G.C.E. Advanced Level (A/L) examinations in a single attempt, or completion of an approved foundation program.",
     "relevant_terms": ["advanced level", "undergraduate"],
     "expected_keywords": ["simple passes", "advanced level"],
     "reference_answer": "Usually 3 simple passes (S) or better in the G.C.E. Advanced Level in a single attempt, or completion of an approved foundation programme."
@@ -103,6 +114,7 @@
     "question": "What qualifications does Mr. Gayan Perera have?",
     "answerable": true,
     "expected_sources": ["NSBM_Lecturers_Qualifications_Updated_2026.pdf"],
+    "context": "Mr. Gayan Perera Master of Business Analytics (Data Science), University of Colombo; MSc Computer Science, Staffordshire University, UK; BSc (Hons) Management Information Systems, NSBM.",
     "relevant_terms": ["gayan perera"],
     "expected_keywords": ["business analytics", "staffordshire"],
     "reference_answer": "Master of Business Analytics (Data Science), University of Colombo; MSc Computer Science, Staffordshire University; BSc (Hons) Management Information Systems, NSBM."
@@ -112,6 +124,7 @@
     "question": "Is poor internet connectivity accepted as an extenuating circumstance?",
     "answerable": true,
     "expected_sources": ["Revision to NSBM EC Guidelines to students from Aug2023.pdf"],
+    "context": "The following problems will not be approved. • Corrupt data or media • Poor internet connectivity",
     "relevant_terms": ["poor internet connectivity", "will not be approved"],
     "expected_keywords": ["not", "internet"],
     "reference_answer": "No. Poor internet connectivity is listed among the problems that will not be approved as extenuating circumstances."
@@ -121,6 +134,7 @@
     "question": "In which months does NSBM take in new undergraduate students?",
     "answerable": true,
     "expected_sources": ["NSBM academic calendar 1.pdf"],
+    "context": "Three Annual Intakes. NSBM typically admits undergraduate students across three major cycles each year—February, June, and October.",
     "relevant_terms": ["intakes", "february"],
     "expected_keywords": ["february", "june", "october"],
     "reference_answer": "NSBM typically has three intakes a year, in February, June and October; each intake follows its own semester schedule."
@@ -130,6 +144,7 @@
     "question": "What is on the canteen menu this Friday?",
     "answerable": false,
     "expected_sources": [],
+    "context": "",
     "relevant_terms": [],
     "expected_keywords": [],
     "reference_answer": "Not in the documents: the agent should say it could not find this information."
@@ -139,6 +154,7 @@
     "question": "Who won the inter-faculty cricket tournament in 2025?",
     "answerable": false,
     "expected_sources": [],
+    "context": "",
     "relevant_terms": [],
     "expected_keywords": [],
     "reference_answer": "Not in the documents: the agent should say it could not find this information."
@@ -148,6 +164,7 @@
     "question": "How much does daily car parking cost on campus?",
     "answerable": false,
     "expected_sources": [],
+    "context": "",
     "relevant_terms": [],
     "expected_keywords": [],
     "reference_answer": "Not in the documents: the agent should say it could not find this information."

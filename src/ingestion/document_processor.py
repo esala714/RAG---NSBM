@@ -1,117 +1,147 @@
+"""Extract, clean, chunk and label academic-administration documents.
 
-"""Extract, clean, chunk and label academic-administration documents."""
+    extract (BaseExtractor) -> clean (TextCleaner) -> repair split words (SplitWordRepairer)
+    -> chunk (WordChunker) -> label (KeywordCategoryClassifier)
+
+DocumentProcessor receives every part through its constructor (Dependency Injection) and
+build_processor() is the one place that chooses the concrete classes. The functions at the
+bottom (process_file, SUPPORTED, ...) keep the original interface that Member 2's
+scripts/build_index.py and the tests use.
+
+Run:  python -m src.ingestion.document_processor --input data/raw --output data/processed/chunks.jsonl
+"""
 from __future__ import annotations
+
 import argparse
 import hashlib
 import json
-import re
 from pathlib import Path
-from typing import Iterable
+from typing import Sequence
 
-from docx import Document
-from pypdf import PdfReader
+from .categories import KeywordCategoryClassifier
+from .chunking import CHUNK_OVERLAP, CHUNK_SIZE, WordChunker
+from .extractors import BaseExtractor, Page, default_extractors
+from .text_cleaning import SplitWordRepairer, TextCleaner
 
-SUPPORTED = {".pdf", ".docx", ".txt"}
 
-# MiniLM (Member 2's embedding model) reads only the first 256 word-pieces of a chunk,
-# about 192 English words. 180-word chunks fit inside that limit, so dense search sees
-# every word; the 40-word overlap keeps a sentence cut at a chunk edge whole in the next chunk.
-CHUNK_SIZE = 180
-CHUNK_OVERLAP = 40
+class DocumentProcessor:
+    def __init__(self, extractors: Sequence[BaseExtractor], cleaner: TextCleaner,
+                 chunker: WordChunker, classifier: KeywordCategoryClassifier,
+                 repairer: SplitWordRepairer | None = None):
+        self.extractors = list(extractors)
+        self.cleaner = cleaner
+        self.chunker = chunker
+        self.classifier = classifier
+        self.repairer = repairer      # optional: None keeps the text exactly as cleaned
+
+    @property
+    def supported(self) -> set[str]:
+        return {suffix for extractor in self.extractors for suffix in extractor.suffixes}
+
+    def extractor_for(self, path: Path) -> BaseExtractor:
+        for extractor in self.extractors:
+            if extractor.can_read(path):
+                return extractor
+        raise ValueError(f"No extractor for '{path.suffix}' files ({path.name}).")
+
+    def read_pages(self, path: Path) -> list[Page]:
+        """Extracted, cleaned and repaired text of every page."""
+        return self._read_pages(path)[0]
+
+    def _read_pages(self, path: Path) -> tuple[list[Page], list[str]]:
+        raw_pages = self.extractor_for(path).extract(path)
+        pages = [(number, self.cleaner.clean(text)) for number, text in raw_pages]
+        if self.repairer is None:
+            return pages, []
+        return self.repairer.repair(pages)
+
+    def process_file(self, path: Path) -> list[dict]:
+        return self._process(path)[0]
+
+    def _process(self, path: Path) -> tuple[list[dict], list[str]]:
+        pages, repairs = self._read_pages(path)
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        category = self.classifier.classify(path)
+        records = []
+        for page_num, text in pages:
+            for chunk_idx, chunk in enumerate(self.chunker.split(text), start=1):
+                records.append({
+                    "id": f"{path.stem}-{page_num}-{chunk_idx}",
+                    "text": chunk,
+                    "metadata": {
+                        "source": path.name,
+                        "doc_title": path.stem.replace("_", " ").replace("-", " "),
+                        "category": category,
+                        "file_type": path.suffix.lower().lstrip("."),
+                        "page_number": page_num if page_num > 0 else None,
+                        "chunk_index": chunk_idx,
+                        "word_count": len(chunk.split()),
+                        "doc_hash": digest,
+                    },
+                })
+        return records, repairs
+
+    def process_directory(self, input_dir: Path, output_file: Path) -> int:
+        """Process every supported file under input_dir; a damaged file is skipped, not fatal."""
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        all_records = []
+        for path in sorted(input_dir.rglob("*")):
+            if path.is_file() and path.suffix.lower() in self.supported:
+                try:
+                    records, repairs = self._process(path)
+                    all_records.extend(records)
+                    fixed = f" ({len(repairs)} split words repaired)" if repairs else ""
+                    print(f"[OK] {path.name}: {len(records)} chunks{fixed}")
+                except Exception as exc:
+                    print(f"[SKIP] {path.name}: {exc}")
+        with output_file.open("w", encoding="utf-8") as f:
+            for record in all_records:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        print(f"\nProcessed {len(all_records)} chunks → {output_file}")
+        return len(all_records)
+
+
+def build_processor(chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> DocumentProcessor:
+    """Composition root: the only place that decides which concrete classes are used."""
+    return DocumentProcessor(
+        extractors=default_extractors(),
+        cleaner=TextCleaner(),
+        chunker=WordChunker(chunk_size, overlap),
+        classifier=KeywordCategoryClassifier(),
+        repairer=SplitWordRepairer(),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Function interface (used by Member 2's scripts/build_index.py and the tests) #
+# --------------------------------------------------------------------------- #
+SUPPORTED = build_processor().supported
+
 
 def infer_category(path: Path) -> str:
-    """Infer a broad category from the filename; edit mapping for your dataset."""
-    name = path.stem.lower().replace("-", " ").replace("_", " ")
-    rules = {
-        "academic_calendar": ["calendar", "semester", "term dates"],
-        "registration": ["registration", "enrolment", "enrollment", "course add"],
-        "examinations": ["exam", "assessment", "resit", "repeat", "grading"],
-        "attendance": ["attendance", "absence", "leave"],
-        "student_services": ["student service", "counselling", "library", "support"],
-        "fees_and_payments": ["fee", "payment", "scholarship"],
-        "staff": ["lecturer", "staff", "faculty member"],
-        "academic_policies": ["policy", "regulation", "handbook", "guideline"],
-    }
-    for category, words in rules.items():
-        if any(word in name for word in words):
-            return category
-    return "general"
+    return KeywordCategoryClassifier().classify(path)
+
 
 def clean_text(text: str) -> str:
-    text = text.replace("\x00", " ")
-    text = re.sub(r"[\t\r\f\v]+", " ", text)
-    text = re.sub(r" +", " ", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
+    return TextCleaner().clean(text)
 
-def extract_pages(path: Path) -> list[tuple[int, str]]:
-    suffix = path.suffix.lower()
-    if suffix == ".pdf":
-        reader = PdfReader(str(path))
-        return [(i + 1, clean_text(page.extract_text() or "")) for i, page in enumerate(reader.pages)]
-    if suffix == ".docx":
-        doc = Document(str(path))
-        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-        # DOCX has no reliable page boundaries in python-docx. Use page_number=None.
-        return [(0, clean_text("\n".join(paragraphs)))]
-    if suffix == ".txt":
-        return [(0, clean_text(path.read_text(encoding="utf-8", errors="replace")))]
-    return []
+
+def extract_pages(path: Path) -> list[Page]:
+    return build_processor().read_pages(path)
+
 
 def split_into_chunks(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
-    """Split by words, retaining a small overlap to preserve context."""
-    words = text.split()
-    if not words:
-        return []
-    chunks = []
-    start = 0
-    while start < len(words):
-        end = min(start + chunk_size, len(words))
-        chunks.append(" ".join(words[start:end]))
-        if end == len(words):
-            break
-        start = max(end - overlap, start + 1)
-    return chunks
+    return WordChunker(chunk_size, overlap).split(text)
+
 
 def process_file(path: Path, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[dict]:
-    pages = extract_pages(path)
-    records = []
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    for page_num, text in pages:
-        for chunk_idx, chunk in enumerate(split_into_chunks(text, chunk_size, overlap), start=1):
-            records.append({
-                "id": f"{path.stem}-{page_num}-{chunk_idx}",
-                "text": chunk,
-                "metadata": {
-                    "source": path.name,
-                    "doc_title": path.stem.replace("_", " ").replace("-", " "),
-                    "category": infer_category(path),
-                    "file_type": path.suffix.lower().lstrip("."),
-                    "page_number": page_num if page_num > 0 else None,
-                    "chunk_index": chunk_idx,
-                    "word_count": len(chunk.split()),
-                    "doc_hash": digest,
-                }
-            })
-    return records
+    return build_processor(chunk_size, overlap).process_file(path)
+
 
 def process_directory(input_dir: Path, output_file: Path,
                       chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> int:
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    all_records = []
-    for path in sorted(input_dir.rglob("*")):
-        if path.is_file() and path.suffix.lower() in SUPPORTED:
-            try:
-                records = process_file(path, chunk_size, overlap)
-                all_records.extend(records)
-                print(f"[OK] {path.name}: {len(records)} chunks")
-            except Exception as exc:
-                print(f"[SKIP] {path.name}: {exc}")
-    with output_file.open("w", encoding="utf-8") as f:
-        for record in all_records:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    print(f"\nProcessed {len(all_records)} chunks → {output_file}")
-    return len(all_records)
+    return build_processor(chunk_size, overlap).process_directory(input_dir, output_file)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -121,6 +151,7 @@ def main():
     parser.add_argument("--overlap", type=int, default=CHUNK_OVERLAP, help="words shared by neighbouring chunks")
     args = parser.parse_args()
     process_directory(args.input, args.output, args.chunk_size, args.overlap)
+
 
 if __name__ == "__main__":
     main()
