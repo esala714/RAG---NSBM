@@ -84,3 +84,34 @@ def test_damaged_file_is_skipped_not_fatal(tmp_path, capsys):
 
     assert count == 1
     assert "[SKIP] broken.pdf" in capsys.readouterr().out
+
+
+# ---- PDF text repairs ---------------------------------------------------------
+from src.ingestion.text_cleaning import SplitWordRepairer  # noqa: E402
+
+
+def test_cleaner_fixes_ligatures_and_maths_letters():
+    cleaner = TextCleaner()
+
+    assert cleaner.clean("eﬀective and eﬃcient") == "effective and efficient"   # ﬀ, ﬃ
+    assert cleaner.clean("the /f_irst year and in/f_luence") == "the first year and influence"
+    assert cleaner.clean("\U0001d43a\U0001d443\U0001d434 = 3.7") == "GPA = 3.7"          # 𝐺𝑃𝐴
+
+
+def test_repairer_joins_a_split_word_seen_intact_in_the_document():
+    pages = [(1, "Read the examination rules."), (2, "The exa mination starts at 9.")]
+
+    repaired, log = SplitWordRepairer().repair(pages)
+
+    assert repaired[1] == (2, "The examination starts at 9.")
+    assert log == ["exa mination -> examination"]
+
+
+def test_repairer_never_joins_common_words_or_unknown_words():
+    pages = [(1, "Go away now. There is a way out."),           # "a way" must not become "away"
+             (2, "The rule book lists every rule.")]           # "rulebook" never appears intact
+
+    repaired, log = SplitWordRepairer().repair(pages)
+
+    assert repaired == pages
+    assert log == []

@@ -1,6 +1,7 @@
 """Extract, clean, chunk and label academic-administration documents.
 
-    extract (BaseExtractor) -> clean (TextCleaner) -> chunk (WordChunker) -> label (KeywordCategoryClassifier)
+    extract (BaseExtractor) -> clean (TextCleaner) -> repair split words (SplitWordRepairer)
+    -> chunk (WordChunker) -> label (KeywordCategoryClassifier)
 
 DocumentProcessor receives every part through its constructor (Dependency Injection) and
 build_processor() is the one place that chooses the concrete classes. The functions at the
@@ -20,16 +21,18 @@ from typing import Sequence
 from .categories import KeywordCategoryClassifier
 from .chunking import CHUNK_OVERLAP, CHUNK_SIZE, WordChunker
 from .extractors import BaseExtractor, Page, default_extractors
-from .text_cleaning import TextCleaner
+from .text_cleaning import SplitWordRepairer, TextCleaner
 
 
 class DocumentProcessor:
     def __init__(self, extractors: Sequence[BaseExtractor], cleaner: TextCleaner,
-                 chunker: WordChunker, classifier: KeywordCategoryClassifier):
+                 chunker: WordChunker, classifier: KeywordCategoryClassifier,
+                 repairer: SplitWordRepairer | None = None):
         self.extractors = list(extractors)
         self.cleaner = cleaner
         self.chunker = chunker
         self.classifier = classifier
+        self.repairer = repairer      # optional: None keeps the text exactly as cleaned
 
     @property
     def supported(self) -> set[str]:
@@ -42,12 +45,21 @@ class DocumentProcessor:
         raise ValueError(f"No extractor for '{path.suffix}' files ({path.name}).")
 
     def read_pages(self, path: Path) -> list[Page]:
-        """Extracted and cleaned text of every page."""
+        """Extracted, cleaned and repaired text of every page."""
+        return self._read_pages(path)[0]
+
+    def _read_pages(self, path: Path) -> tuple[list[Page], list[str]]:
         raw_pages = self.extractor_for(path).extract(path)
-        return [(number, self.cleaner.clean(text)) for number, text in raw_pages]
+        pages = [(number, self.cleaner.clean(text)) for number, text in raw_pages]
+        if self.repairer is None:
+            return pages, []
+        return self.repairer.repair(pages)
 
     def process_file(self, path: Path) -> list[dict]:
-        pages = self.read_pages(path)
+        return self._process(path)[0]
+
+    def _process(self, path: Path) -> tuple[list[dict], list[str]]:
+        pages, repairs = self._read_pages(path)
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         category = self.classifier.classify(path)
         records = []
@@ -67,7 +79,7 @@ class DocumentProcessor:
                         "doc_hash": digest,
                     },
                 })
-        return records
+        return records, repairs
 
     def process_directory(self, input_dir: Path, output_file: Path) -> int:
         """Process every supported file under input_dir; a damaged file is skipped, not fatal."""
@@ -76,9 +88,10 @@ class DocumentProcessor:
         for path in sorted(input_dir.rglob("*")):
             if path.is_file() and path.suffix.lower() in self.supported:
                 try:
-                    records = self.process_file(path)
+                    records, repairs = self._process(path)
                     all_records.extend(records)
-                    print(f"[OK] {path.name}: {len(records)} chunks")
+                    fixed = f" ({len(repairs)} split words repaired)" if repairs else ""
+                    print(f"[OK] {path.name}: {len(records)} chunks{fixed}")
                 except Exception as exc:
                     print(f"[SKIP] {path.name}: {exc}")
         with output_file.open("w", encoding="utf-8") as f:
@@ -95,6 +108,7 @@ def build_processor(chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) 
         cleaner=TextCleaner(),
         chunker=WordChunker(chunk_size, overlap),
         classifier=KeywordCategoryClassifier(),
+        repairer=SplitWordRepairer(),
     )
 
 
