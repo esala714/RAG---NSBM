@@ -201,7 +201,7 @@ answers about GPA now cite the university's own document.
 **Running it**
 
 ```
-pip install -r requirements-member1.txt
+pip install -r requirements.txt
 python -m src.ingestion.document_processor --input data/raw --output data/processed/chunks.jsonl
 python scripts/build_index.py --chunks data/processed/chunks.jsonl --reset    (hand the chunks to Member 2)
 python -m pytest -q tests/test_document_processor.py                           (7 tests, run offline)
