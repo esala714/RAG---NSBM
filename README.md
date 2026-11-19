@@ -116,8 +116,9 @@ cite its source exactly.
 
 | Step | What it does |
 | --- | --- |
-| Extraction | Reads PDF files page by page with `pypdf`, DOCX files with `python-docx`, and TXT files as UTF-8. Page numbers start at 1 |
-| Cleaning | Removes null characters, turns tabs and other control whitespace into single spaces, collapses repeated spaces and keeps at most one blank line between paragraphs |
+| Extraction | Reads PDF files page by page with `pypdf`, DOCX files (paragraphs and tables) with `python-docx`, and TXT files as UTF-8. Page numbers start at 1 |
+| Cleaning | Turns ligature and maths characters into plain letters (`ﬀ` → `ff`, `𝐺𝑃𝐴` → `GPA`), repairs ligatures written as glyph names (`/f_irst` → `first`), removes null characters, turns tabs into spaces, collapses repeated spaces and keeps at most one blank line between paragraphs |
+| Repair | Joins words that the PDF text layer split in two (`exa mination` → `examination`), using the vocabulary of the same document (see below) |
 | Chunking | Splits each page into windows of 180 words with a 40-word overlap, so a sentence cut at the end of one chunk appears whole at the start of the next. Chunking restarts on every page, so a chunk never spans two pages |
 | Labelling | Adds metadata to every chunk: source file, title, category, file type, page number, chunk index, word count and a SHA-256 hash of the file |
 | Export | Writes one chunk per line to `data/processed/chunks.jsonl`, the input for `scripts/build_index.py --chunks` |
@@ -173,10 +174,10 @@ The category is chosen from keywords in the file name, and the first matching ru
 
 ```
 [OK] NSBM academic appeals policy.pdf: 5 chunks
-[OK] Examination Regulations_Instructions To Candidates.pdf: 12 chunks
-[OK] NSBM Degree Programmes_Exam By Laws _ Version 1 (17.2 onwards) _Students.pdf: 7 chunks
+[OK] Examination Regulations_Instructions To Candidates.pdf: 12 chunks (13 split words repaired)
+[OK] NSBM Degree Programmes_Exam By Laws _ Version 1 (17.2 onwards) _Students.pdf: 7 chunks (2 split words repaired)
 [OK] NSBM_Lecturers_Qualifications_Updated_2026.pdf: 5 chunks
-[OK] NSBM student handbook 7.pdf: 80 chunks
+[OK] NSBM student handbook 7.pdf: 80 chunks (7 split words repaired)
 ...
 Processed 155 chunks → data/processed/chunks.jsonl
 ```
@@ -198,19 +199,59 @@ An AI-written GPA summary that was in the first version of `data/raw/` has been 
 official Exam By-Laws (section 3, page 6) already give the GPA formula and the grading scale, so
 answers about GPA now cite the university's own document.
 
+**Repairing PDF text.** The text layer of some PDFs is damaged in ways a reader never sees:
+
+| Problem in the extracted text | Example | Fix |
+| --- | --- | --- |
+| Ligature or maths characters | `eﬀective`, `𝐺𝑃𝐴 = ∑ ...` | Unicode NFKC normalisation |
+| Ligature written as its glyph name | `/f_irst`, `in/f_luence` (student handbook) | `/f_` followed by a letter becomes `f` |
+| A word split by a space | `exa mination`, `Ca ndidates` (exam regulations) | `SplitWordRepairer` |
+
+`SplitWordRepairer` joins two neighbouring words only when (1) the joined word appears intact
+elsewhere in the same document, (2) one of the two pieces is rare there (at most twice), because
+real words repeat and broken pieces do not, and (3) neither piece is a common short word, so
+"a way" can never become "away". It repaired 22 words in 3 documents, and every repair is printed.
+Before these fixes "first" appeared 26 times in the chunks and "field" and "influence" not at all;
+now they appear 45, 13 and 16 times, so a search for them finds the student handbook.
+
 **Running it**
 
 ```
 pip install -r requirements.txt
 python -m src.ingestion.document_processor --input data/raw --output data/processed/chunks.jsonl
 python scripts/build_index.py --chunks data/processed/chunks.jsonl --reset    (hand the chunks to Member 2)
-python -m pytest -q tests/test_document_processor.py                           (7 tests, run offline)
+python -m pytest -q tests/test_document_processor.py tests/test_ingestion_classes.py   (15 tests, offline)
 ```
 
 **Design**
-- **One function per step:** `extract_pages` → `clean_text` → `split_into_chunks` → `process_file`.
-  Each step is tested on its own, and the tests need no real NSBM documents
-  (`test_process_file_metadata` creates a temporary text file).
+
+```
+                    build_processor()   (composition root: the only place that picks the classes)
+                           │ injects
+                           ▼
+ DocumentProcessor ──► BaseExtractor (ABC) ── PdfExtractor │ DocxExtractor │ TxtExtractor
+                   ──► TextCleaner           (characters and whitespace, one method per rule)
+                   ──► SplitWordRepairer     (optional; uses the whole document's vocabulary)
+                   ──► WordChunker           (180-word windows, 40-word overlap)
+                   ──► KeywordCategoryClassifier
+```
+
+| File | Class | Role |
+| --- | --- | --- |
+| `src/ingestion/extractors.py` | `BaseExtractor` (ABC), `PdfExtractor`, `DocxExtractor`, `TxtExtractor` | One class per file type (Strategy pattern) |
+| `src/ingestion/text_cleaning.py` | `TextCleaner`, `SplitWordRepairer` | Clean and repair the extracted text |
+| `src/ingestion/chunking.py` | `WordChunker` | Sliding-window chunking |
+| `src/ingestion/categories.py` | `KeywordCategoryClassifier` | Category from the file name |
+| `src/ingestion/document_processor.py` | `DocumentProcessor`, `build_processor()` | Runs the pipeline and writes `chunks.jsonl` |
+
+- **Interfaces and Dependency Injection:** `DocumentProcessor` receives its extractors, cleaner,
+  repairer, chunker and classifier through its constructor and only knows the `BaseExtractor`
+  interface, so a new format (e.g. OCR for scanned PDFs) is one new class. The tests inject a
+  `FakeExtractor` and a 3-word chunker to check the pipeline without any real document.
+- **Same interface as before:** the functions `process_file()`, `clean_text()`, `split_into_chunks()`
+  and the `SUPPORTED` set still exist (they call the classes), so Member 2's `scripts/build_index.py`
+  works unchanged. Before the cleaning fixes were added, the class version produced a
+  `chunks.jsonl` identical byte for byte to the function version.
 - **Page-level chunking:** chunks never cross a page boundary, so every citation points to one exact page.
 - **Safe sliding window:** the window always moves forward by at least one word, so a wrong setting
   (overlap ≥ chunk size) can never cause an endless loop.
@@ -221,7 +262,9 @@ python -m pytest -q tests/test_document_processor.py                           (
 
 **Known limitations**
 - Scanned PDFs (pictures of text) produce no text, because no OCR is used.
-- DOCX and TXT files have no page numbers (`page_number` is `null`); Member 2's loader treats them as page 1.
+- DOCX and TXT files have no page numbers (`page_number` is `null`), so their citations show the file name only.
+- The split-word repair is deliberately cautious: a broken word whose joined form never appears
+  intact in the same document (e.g. `Addit ional`) is left as it is.
 - Categories come from file names, so a badly named file is labelled `general`.
 ---
 
@@ -339,11 +382,13 @@ The `AcademicAgent` (`src/agent/academic_agent.py`) runs an explainable agentic 
 The evaluation module (`src/evaluation/`) checks the system against a hand-checked set of questions.
 
 **Ground truth** (`src/evaluation/ground_truth.json`): 17 questions
-- **14 answerable questions**, at least one for every document category. Each one names the
-  document that holds the answer (`expected_sources`), the terms a relevant chunk must contain
-  (`relevant_terms`), the keywords a correct answer must contain (`expected_keywords`) and a
-  reference answer. A test confirms that every term really
-  appears in its source document, so a low score is the system's fault, not the dataset's.
+- **14 answerable questions**, at least one for every document category. Each one is a
+  Question / Answer / Context triple: the question, a reference answer, and the passage that
+  answers it (`context`, copied word for word from the document). It also names the documents
+  that hold the answer (`expected_sources`), the terms a relevant chunk must contain
+  (`relevant_terms`) and the keywords a correct answer must contain (`expected_keywords`).
+  Tests confirm that every context passage and every term really appear in the source documents,
+  so a low score is the system's fault, not the dataset's.
 - **3 unanswerable questions** (canteen menu, a cricket result, parking fees): the agent should refuse.
 
 **Metrics** (`src/evaluation/metrics.py`)
@@ -353,6 +398,7 @@ The evaluation module (`src/evaluation/`) checks the system against a hand-check
 | Hit@k | Did retrieval find the right document? | 1 if any of the top *k* chunks comes from an expected source, else 0 |
 | MRR | How high was the right document ranked? | Mean of 1 / rank of the first chunk from an expected source |
 | Context Relevance | How much of the context is on topic? | Chunks containing a relevant term / chunks retrieved |
+| Context Recall | Was the passage that answers the question retrieved? | Words of the ground-truth context passage found in the retrieved chunks / words of the passage |
 | Groundedness (Faithfulness) | Is every claim in the answer backed by the context? | Answer sentences with at least 60% of their content words in the retrieved chunks / sentences checked |
 | Answer Relevance | Does the answer contain what was asked for? | Expected keywords found in the answer / expected keywords |
 | Refusal accuracy | Does the agent refuse when it should? | Unanswerable questions refused / unanswerable questions |
@@ -360,7 +406,8 @@ The evaluation module (`src/evaluation/`) checks the system against a hand-check
 ```math
 \text{MRR} = \frac{1}{|Q|} \sum_{q \in Q} \frac{1}{\text{rank}_q}, \qquad
 \text{Groundedness} = \frac{\#\{\, s \in \text{answer} : \text{support}(s) \ge 0.6 \,\}}{\#\{\, s \in \text{answer} \,\}}, \qquad
-\text{support}(s) = \frac{|\text{words}(s) \cap \text{words}(\text{context})|}{|\text{words}(s)|}
+\text{support}(s) = \frac{|\text{words}(s) \cap \text{words}(\text{context})|}{|\text{words}(s)|}, \qquad
+\text{Context Recall} = \frac{|\text{words}(\text{passage}) \cap \text{words}(\text{retrieved})|}{|\text{words}(\text{passage})|}
 ```
 
 Words are compared with Member 2's tokenizer (lower case, stop words removed, light stemming), so
@@ -368,13 +415,14 @@ Words are compared with Member 2's tokenizer (lower case, stop words removed, li
 removed first, and fragments shorter than 3 content words are not checked.
 
 **Results: offline TF-IDF baseline** (`python -m src.evaluation.evaluate`, k = 4,
-155 chunks of up to 180 words from 18 documents)
+155 chunks of up to 180 words from 18 documents, with the PDF text repairs)
 
 | Metric | Score | First data version (74 chunks of up to 700 words, 19 documents) |
 | --- | --- | --- |
 | Hit@4 | 12 / 14 = 0.857 | 13 / 14 = 0.929 |
 | MRR | 0.857 | 0.756 |
-| Context Relevance | 0.518 | 0.464 |
+| Context Relevance | 0.500 | 0.464 |
+| Context Recall | 0.841 | not measured |
 
 - The right document was in the top 4 for 12 of the 14 questions. The misses are q05 (repeat exam
   fee), where the word "examination" ranks the longer examination-rules documents above the one-page
@@ -382,11 +430,15 @@ removed first, and fragments shorter than 3 content words are not checked.
   calendar. Matching exact words is not enough on its own, which is why Member 2 adds dense
   (meaning-based) search.
 - Smaller chunks put the right chunk higher when it is found (MRR 0.756 → 0.857) and bring less
-  off-topic text into the context (Context Relevance 0.464 → 0.518), but TF-IDF alone misses one
+  off-topic text into the context (Context Relevance 0.464 → 0.500), but TF-IDF alone misses one
   more question. The main reason for 180-word chunks is dense search (see Member 1), which this
   offline run does not use.
+- On average 84% of the words of the answering passage are in the 4 retrieved chunks. Context
+  Recall also catches what Hit@4 misses: q11 counts as a hit because the registration policy is an
+  accepted source, but the passage with the A/L entry requirements is in the course registration
+  guideline, so its recall is only 0.40.
 - TF-IDF scores cannot separate answerable from unanswerable questions: the parking question scores
-  0.175, above three answerable questions (0.172, 0.154 and 0.134). The agent's refusal threshold
+  0.191, above three answerable questions (0.174, 0.174 and 0.133). The agent's refusal threshold
   (`min_score`) should therefore be chosen from the dense cosine scores of the `--retriever hybrid`
   run, between the two "top score" values that the report prints.
 
@@ -398,7 +450,7 @@ removed first, and fragments shorter than 3 content words are not checked.
 python -m src.evaluation.evaluate                                   (offline TF-IDF baseline, no API key)
 python -m src.evaluation.evaluate --retriever hybrid                (Member 2's Chroma store: run scripts/build_index.py first)
 python -m src.evaluation.evaluate --retriever hybrid --with-agent   (answers from Gemini: needs GEMINI_API_KEY in .env)
-python -m pytest -q tests/test_evaluation.py                        (12 tests, run offline)
+python -m pytest -q tests/test_evaluation.py                        (14 tests, run offline)
 ```
 
 Each run prints a table with one row per question and saves the full results (every retrieved
