@@ -18,6 +18,7 @@ from typing import Any
 from src.core.interfaces import BaseRetriever
 from src.evaluation.metrics import (
     answer_relevance,
+    context_recall,
     context_relevance,
     groundedness,
     hit_at_k,
@@ -38,6 +39,8 @@ def load_ground_truth(path: str | Path = DEFAULT_GROUND_TRUTH) -> list[dict[str,
     for q in questions:
         if q["answerable"] and not q["expected_sources"]:
             raise ValueError(f"{q['id']}: an answerable question needs expected_sources.")
+        if q["answerable"] and not q.get("context"):
+            raise ValueError(f"{q['id']}: an answerable question needs its context passage.")
     return questions
 
 
@@ -64,6 +67,8 @@ def evaluate_retrieval(retriever: BaseRetriever, questions: list[dict], k: int =
             row["reciprocal_rank"] = round(reciprocal_rank(sources, q["expected_sources"]), 4)
             row["context_relevance"] = round(
                 context_relevance([c.text for c in chunks], q["relevant_terms"]), 4)
+            row["context_recall"] = (round(context_recall([c.text for c in chunks], q["context"]), 4)
+                                     if q.get("context") else None)
         rows.append(row)
 
     answerable = [r for r in rows if r["answerable"]]
@@ -76,6 +81,7 @@ def evaluate_retrieval(retriever: BaseRetriever, questions: list[dict], k: int =
         "hit_rate": mean(r["hit"] for r in answerable),
         "mrr": mean(r["reciprocal_rank"] for r in answerable),
         "context_relevance": mean(r["context_relevance"] for r in answerable),
+        "context_recall": mean(r["context_recall"] for r in answerable),
         # Compare these two to choose the agent's min_score: a good threshold lies between them.
         "lowest_top_score_answerable": min((r["top_score"] for r in answerable), default=None),
         "highest_top_score_unanswerable": max((r["top_score"] for r in unanswerable), default=None),
@@ -150,7 +156,7 @@ def format_retrieval_report(result: dict, retriever_name: str) -> str:
         f"RETRIEVAL  |  retriever: {retriever_name}  |  k = {s['k']}  |  "
         f"{s['answerable_questions']} answerable + {s['unanswerable_questions']} unanswerable questions",
         LINE,
-        f"{'ID':<4} {'Hit':>3} {'RR':>5} {'CtxRel':>6} {'Top':>6}  Best chunk",
+        f"{'ID':<4} {'Hit':>3} {'RR':>5} {'CtxRel':>6} {'Recall':>6} {'Top':>6}  Best chunk",
     ]
     for r in result["questions"]:
         best = r["retrieved"][0] if r["retrieved"] else None
@@ -159,15 +165,17 @@ def format_retrieval_report(result: dict, retriever_name: str) -> str:
         else:   # DOCX / TXT chunks have no page number
             where = best["source"] + (f" (p{best['page']})" if best["page"] else "")
         if r["answerable"]:
-            cells = f"{int(r['hit']):>3} {r['reciprocal_rank']:>5.2f} {r['context_relevance']:>6.2f}"
+            cells = (f"{int(r['hit']):>3} {r['reciprocal_rank']:>5.2f} {r['context_relevance']:>6.2f}"
+                     f" {_fmt(r['context_recall'], 2):>6}")
         else:
-            cells = f"{'-':>3} {'-':>5} {'-':>6}"
-        lines.append(_ascii(f"{r['id']:<4} {cells} {r['top_score']:>6.3f}  {where[:52]}"))
+            cells = f"{'-':>3} {'-':>5} {'-':>6} {'-':>6}"
+        lines.append(_ascii(f"{r['id']:<4} {cells} {r['top_score']:>6.3f}  {where[:45]}"))
     lines += [
         LINE,
         f"Hit@{s['k']}              = {s['hits']}/{s['answerable_questions']} = {_fmt(s['hit_rate'])}",
         f"MRR                = {_fmt(s['mrr'])}",
         f"Context Relevance  = {_fmt(s['context_relevance'])}",
+        f"Context Recall     = {_fmt(s['context_recall'])}",
         f"Top score: lowest for an answerable question = {_fmt(s['lowest_top_score_answerable'])}, "
         f"highest for an unanswerable question = {_fmt(s['highest_top_score_unanswerable'])}",
     ]

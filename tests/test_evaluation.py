@@ -11,6 +11,7 @@ from src.core.models import AgentStep, RAGResponse, RetrievedChunk
 from src.evaluation.evaluate import evaluate_agent, evaluate_retrieval, load_ground_truth
 from src.evaluation.metrics import (
     answer_relevance,
+    context_recall,
     context_relevance,
     groundedness,
     hit_at_k,
@@ -40,6 +41,14 @@ def test_context_relevance_counts_chunks_with_a_relevant_term():
 
     assert context_relevance(chunks, ["thirty minutes", "mobile"]) == pytest.approx(2 / 3)
     assert context_relevance([], ["thirty minutes"]) == 0.0
+
+
+def test_context_recall_is_the_share_of_the_passage_retrieved():
+    passage = "Candidates may be admitted thirty minutes late"
+
+    assert context_recall([passage], passage) == 1.0
+    assert context_recall(["Canteen opening hours"], passage) == 0.0
+    assert context_recall(["admitted thirty minutes"], "admitted thirty minutes late") == 0.75
 
 
 def test_answer_relevance_is_keyword_coverage():
@@ -168,3 +177,14 @@ def test_ground_truth_terms_appear_in_their_source_documents():
                         if r["metadata"]["source"] in q["expected_sources"]).lower()
         for term in q["relevant_terms"] + q["expected_keywords"]:
             assert term.lower() in text, f"{q['id']}: '{term}' not found in {q['expected_sources']}"
+
+
+@pytest.mark.skipif(not CHUNKS_FILE.exists(), reason="run Member 1's document processor first")
+def test_ground_truth_context_is_a_real_passage():
+    """Each context passage is copied word for word from one chunk of its source document."""
+    norm = lambda s: " ".join(s.split()).lower()
+    records = [json.loads(line) for line in CHUNKS_FILE.read_text(encoding="utf-8").splitlines() if line]
+    for q in load_ground_truth():
+        if q["answerable"]:
+            assert any(norm(q["context"]) in norm(r["text"]) for r in records
+                       if r["metadata"]["source"] in q["expected_sources"]), q["id"]

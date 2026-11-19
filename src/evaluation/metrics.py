@@ -5,6 +5,8 @@ Retrieval (no LLM needed), for each answerable question and its top-k chunks:
     Hit@k              = 1 if any retrieved chunk comes from an expected source document, else 0
     Reciprocal rank    = 1 / rank of the first chunk from an expected source (0 if none)
     Context Relevance  = (chunks containing at least one relevant term) / (chunks retrieved)
+    Context Recall     = (words of the ground-truth context passage found in the chunks)
+                         / (words of the passage)
 
 Answers (need the agent and Gemini):
 
@@ -48,6 +50,15 @@ def reciprocal_rank(retrieved_sources: Sequence[str], expected_sources: Iterable
         if _norm_source(source) in expected:
             return 1.0 / rank
     return 0.0
+
+
+def context_recall(chunk_texts: Sequence[str], reference_context: str) -> float:
+    """How much of the ground-truth passage that answers the question was retrieved (0 to 1)."""
+    passage = set(tokenize(reference_context))
+    if not passage:
+        return 0.0
+    retrieved = {w for text in chunk_texts for w in tokenize(text)}
+    return len(passage & retrieved) / len(passage)
 
 
 def context_relevance(chunk_texts: Sequence[str], relevant_terms: Sequence[str]) -> float:
