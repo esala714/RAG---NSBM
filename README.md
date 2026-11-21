@@ -576,8 +576,8 @@ the threshold study is in [`README_member2.md`](README_member2.md))
 ```
 python -m src.evaluation.evaluate                                   (offline TF-IDF baseline, no API key)
 python -m src.evaluation.evaluate --retriever hybrid                (Member 2's Chroma store: run scripts/build_index.py first)
-python -m src.evaluation.evaluate --retriever hybrid --with-agent   (answers from Gemini: needs GEMINI_API_KEY in .env)
-python -m pytest -q tests/test_evaluation.py                        (14 tests, run offline)
+python -m src.evaluation.evaluate --retriever hybrid --with-agent   (answers from Gemini: needs GEMINI_API_KEY and GEMINI_MODEL in .env)
+python -m pytest -q tests/test_evaluation.py                        (18 tests, run offline)
 ```
 
 Each run prints a table with one row per question and saves the full results (every retrieved
@@ -591,6 +591,12 @@ chunk, every answer sentence and its support score) as JSON in `logs/evaluation/
   `FakeRetriever` and a scripted agent, and run without Chroma or Gemini.
 - **Fair averages:** questions where Gemini was unavailable are reported and left out of the
   averages instead of being counted as refusals.
+- **Free-tier pacing:** the free Gemini tier allows 15 requests per minute, and the agent makes
+  several per question (search plan, query rewrites, answer, answer check), so an unpaced run stops
+  with `429 RESOURCE_EXHAUSTED` after a few questions. `PacedLLM` (`src/evaluation/pacing.py`)
+  wraps the Gemini client: it leaves 5 seconds between calls (`--requests-per-minute 12`, the
+  default) and, if a 429 still comes, waits as long as the error asks and tries again. A full run
+  of 17 questions therefore takes several minutes, and prints each question as it is answered.
 
 **Known limitations**
 - Groundedness and answer relevance compare words, not meaning: a correct paraphrase can score
