@@ -19,14 +19,16 @@ class WordChunker:
         self.chunk_size = chunk_size
         self.overlap = overlap
 
-    def split(self, text: str) -> list[str]:
+    def split(self, text: str, reserve: int = 0) -> list[str]:
+        """`reserve` words of each chunk are kept free for a heading put in front of it."""
         words = text.split()
         if not words:
             return []
+        size = max(self.chunk_size - reserve, 1)
         chunks = []
         start = 0
         while start < len(words):
-            end = min(start + self.chunk_size, len(words))
+            end = min(start + size, len(words))
             chunks.append(" ".join(words[start:end]))
             if end == len(words):
                 break
