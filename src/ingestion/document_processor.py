@@ -1,7 +1,7 @@
 """Extract, clean, chunk and label academic-administration documents.
 
     extract (BaseExtractor) -> clean (TextCleaner) -> repair split words (SplitWordRepairer)
-    -> chunk (WordChunker) -> label (KeywordCategoryClassifier)
+    -> title page as heading (TitlePageHeading) -> chunk (WordChunker) -> label (KeywordCategoryClassifier)
 
 DocumentProcessor receives every part through its constructor (Dependency Injection) and
 build_processor() is the one place that chooses the concrete classes. The functions at the
@@ -21,18 +21,21 @@ from typing import Sequence
 from .categories import KeywordCategoryClassifier
 from .chunking import CHUNK_OVERLAP, CHUNK_SIZE, WordChunker
 from .extractors import BaseExtractor, Page, default_extractors
+from .headings import TitlePageHeading
 from .text_cleaning import SplitWordRepairer, TextCleaner
 
 
 class DocumentProcessor:
     def __init__(self, extractors: Sequence[BaseExtractor], cleaner: TextCleaner,
                  chunker: WordChunker, classifier: KeywordCategoryClassifier,
-                 repairer: SplitWordRepairer | None = None):
+                 repairer: SplitWordRepairer | None = None,
+                 heading_finder: TitlePageHeading | None = None):
         self.extractors = list(extractors)
         self.cleaner = cleaner
         self.chunker = chunker
         self.classifier = classifier
         self.repairer = repairer      # optional: None keeps the text exactly as cleaned
+        self.heading_finder = heading_finder    # optional: None chunks every page as it is
 
     @property
     def supported(self) -> set[str]:
@@ -60,17 +63,23 @@ class DocumentProcessor:
 
     def _process(self, path: Path) -> tuple[list[dict], list[str]]:
         pages, repairs = self._read_pages(path)
+        heading = None
+        if self.heading_finder is not None:
+            heading, pages = self.heading_finder.split(pages)
+        reserve = len(heading.split()) if heading else 0
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         category = self.classifier.classify(path)
         records = []
         for page_num, text in pages:
-            for chunk_idx, chunk in enumerate(self.chunker.split(text), start=1):
+            for chunk_idx, body in enumerate(self.chunker.split(text, reserve), start=1):
+                chunk = f"{heading}: {body}" if heading else body
                 records.append({
                     "id": f"{path.stem}-{page_num}-{chunk_idx}",
                     "text": chunk,
                     "metadata": {
                         "source": path.name,
                         "doc_title": path.stem.replace("_", " ").replace("-", " "),
+                        "heading": heading,
                         "category": category,
                         "file_type": path.suffix.lower().lstrip("."),
                         "page_number": page_num if page_num > 0 else None,
@@ -109,6 +118,7 @@ def build_processor(chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) 
         chunker=WordChunker(chunk_size, overlap),
         classifier=KeywordCategoryClassifier(),
         repairer=SplitWordRepairer(),
+        heading_finder=TitlePageHeading(),
     )
 
 

@@ -121,6 +121,35 @@ def test_repairer_never_joins_common_words_or_unknown_words():
 # ---- title pages ----------------------------------------------------------------
 
 
+class TitlePageExtractor(BaseExtractor):
+    """A cover page with only a title, then a page of content."""
+
+    suffixes = (".fake",)
+
+    def extract(self, path):
+        body = " ".join(f"w{i}" for i in range(20))
+        return [(1, "EXAM RULES"), (2, body)]
+
+
+def test_title_page_becomes_the_heading_of_every_chunk(tmp_path):
+    path = tmp_path / "exam rules.fake"
+    path.write_text("ignored")
+    processor = DocumentProcessor(
+        extractors=[TitlePageExtractor()],
+        cleaner=TextCleaner(),
+        chunker=WordChunker(chunk_size=10, overlap=2),
+        classifier=KeywordCategoryClassifier(),
+        heading_finder=TitlePageHeading(max_title_words=5),
+    )
+
+    records = processor.process_file(path)
+
+    assert all(r["metadata"]["page_number"] == 2 for r in records)      # no chunk for the title page
+    assert all(r["text"].startswith("EXAM RULES: ") for r in records)
+    assert all(r["metadata"]["heading"] == "EXAM RULES" for r in records)
+    assert max(r["metadata"]["word_count"] for r in records) <= 10      # the heading counts toward the size
+
+
 def test_title_pages_need_a_longer_page_after_them():
     finder = TitlePageHeading(max_title_words=5)
     short_only = [(1, "Students must attend"), (2, "lectures")]
