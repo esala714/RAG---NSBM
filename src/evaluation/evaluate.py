@@ -104,12 +104,15 @@ def _llm_failed(response: Any) -> bool:
     return any(step.detail.startswith("Gemini unavailable") for step in response.trace)
 
 
-def evaluate_agent(agent: Any, questions: list[dict]) -> dict:
+def evaluate_agent(agent: Any, questions: list[dict], progress: bool = False) -> dict:
     """`agent` is anything with run(question) -> RAGResponse, e.g. Member 3's AcademicAgent."""
     rows = []
-    for q in questions:
+    for number, q in enumerate(questions, start=1):
         response = agent.run(q["question"])
         refused = not response.answerable
+        if progress:
+            outcome = "Gemini error" if _llm_failed(response) else "refused" if refused else "answered"
+            print(f"  [{number}/{len(questions)}] {q['id']}: {outcome}", flush=True)
         row: dict[str, Any] = {
             "id": q["id"],
             "question": q["question"],
@@ -230,7 +233,8 @@ def build_retriever(name: str, chunks_path: Path, mode: str | None) -> BaseRetri
     return build_hybrid(mode=mode)
 
 
-def build_agent(retriever: BaseRetriever, k: int, min_score: float | None):
+def build_agent(retriever: BaseRetriever, k: int, min_score: float | None,
+                requests_per_minute: float = 12):
     import os
 
     from src.agent.academic_agent import AcademicAgent
@@ -249,7 +253,12 @@ def build_agent(retriever: BaseRetriever, k: int, min_score: float | None):
     settings = {"top_k": k, "trace_dir": str(PROJECT_ROOT / "logs" / "traces")}
     if min_score is not None:
         settings["min_score"] = min_score
-    return AcademicAgent(retriever, GeminiClient(api_key, model), PromptBuilder(), **settings)
+    llm = GeminiClient(api_key, model)
+    if requests_per_minute > 0:     # stay under the free tier's 15 requests per minute
+        from src.evaluation.pacing import PacedLLM
+
+        llm = PacedLLM(llm, requests_per_minute)
+    return AcademicAgent(retriever, llm, PromptBuilder(), **settings)
 
 
 def main(argv: list[str] | None = None) -> dict:
@@ -263,6 +272,8 @@ def main(argv: list[str] | None = None) -> dict:
                         help="also run Member 3's agent with Gemini and score its answers")
     parser.add_argument("--min-score", type=float, default=None,
                         help="agent's similarity threshold (default 0.35; TF-IDF scores are lower, try 0.1)")
+    parser.add_argument("--requests-per-minute", type=float, default=12,
+                        help="Gemini calls allowed per minute with --with-agent (free tier: 15; 0 = no limit)")
     parser.add_argument("--ground-truth", type=Path, default=DEFAULT_GROUND_TRUTH)
     parser.add_argument("--chunks", type=Path, default=DEFAULT_CHUNKS)
     parser.add_argument("--output", type=Path, default=None, help="JSON results file")
@@ -279,8 +290,11 @@ def main(argv: list[str] | None = None) -> dict:
     print(format_retrieval_report(results["retrieval"], args.retriever))
 
     if args.with_agent:
-        agent = build_agent(retriever, args.k, args.min_score)
-        results["agent"] = evaluate_agent(agent, questions)
+        agent = build_agent(retriever, args.k, args.min_score, args.requests_per_minute)
+        pace = (f"at most {args.requests_per_minute:g} Gemini calls per minute"
+                if args.requests_per_minute > 0 else "no rate limit")
+        print(f"\nAsking the agent {len(questions)} questions ({pace}) ...")
+        results["agent"] = evaluate_agent(agent, questions, progress=True)
         print()
         print(format_agent_report(results["agent"]))
 

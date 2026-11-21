@@ -19,6 +19,7 @@ from src.evaluation.metrics import (
     reciprocal_rank,
     split_sentences,
 )
+from src.evaluation.pacing import PacedLLM, retry_delay
 from src.evaluation.retrievers import TfidfRetriever
 from src.retrieval.schemas import Chunk
 from tests.fake_retriever import FakeRetriever
@@ -210,3 +211,52 @@ def test_ground_truth_context_is_a_real_passage():
         if q["answerable"]:
             assert any(norm(q["context"]) in norm(r["text"]) for r in records
                        if r["metadata"]["source"] in q["expected_sources"]), q["id"]
+
+
+# ---- pacing Gemini calls for the free tier ---------------------------------------
+
+
+class RateLimitError(Exception):
+    code = 429
+
+
+class FlakyLLM:
+    """Refuses the first `failures` calls with a 429, then answers."""
+
+    def __init__(self, failures: int):
+        self.failures, self.calls = failures, 0
+
+    def generate(self, prompt: str) -> str:
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise RateLimitError("429 RESOURCE_EXHAUSTED. Please retry in 40.7s.")
+        return "answer"
+
+
+class FakeClock:
+    def __init__(self):
+        self.now, self.slept = 0.0, []
+
+    def sleep(self, seconds: float) -> None:
+        self.slept.append(round(seconds, 1))
+        self.now += seconds
+
+
+def test_paced_llm_spaces_calls_and_waits_out_a_rate_limit():
+    clock = FakeClock()
+    llm = PacedLLM(FlakyLLM(failures=1), requests_per_minute=12, sleep=clock.sleep, clock=lambda: clock.now)
+
+    assert llm.generate("q1") == "answer"      # 429, waits 40.7 + 1 s, then answers
+    assert llm.generate("q2") == "answer"      # under 5 s since the last call: waits the rest
+    assert clock.slept == [41.7, 5.0]
+    assert llm.waited_for_limit == 1
+
+
+def test_paced_llm_gives_up_with_the_agents_error():
+    clock = FakeClock()
+    llm = PacedLLM(FlakyLLM(failures=10), max_retries=2, give_up_error=RuntimeError,
+                   sleep=clock.sleep, clock=lambda: clock.now)
+
+    with pytest.raises(RuntimeError, match="rate limit"):
+        llm.generate("q")
+    assert retry_delay(Exception("no hint")) == 60.0
