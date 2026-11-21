@@ -11,6 +11,7 @@ from src.ingestion.categories import KeywordCategoryClassifier
 from src.ingestion.chunking import WordChunker
 from src.ingestion.document_processor import DocumentProcessor, build_processor
 from src.ingestion.extractors import BaseExtractor, DocxExtractor
+from src.ingestion.headings import TitlePageHeading
 from src.ingestion.text_cleaning import TextCleaner
 
 
@@ -115,3 +116,57 @@ def test_repairer_never_joins_common_words_or_unknown_words():
 
     assert repaired == pages
     assert log == []
+
+
+# ---- title pages ----------------------------------------------------------------
+
+
+class TitlePageExtractor(BaseExtractor):
+    """A cover page with only a title, then a page of content."""
+
+    suffixes = (".fake",)
+
+    def extract(self, path):
+        body = " ".join(f"w{i}" for i in range(20))
+        return [(1, "EXAM RULES"), (2, body)]
+
+
+def test_title_page_becomes_the_heading_of_every_chunk(tmp_path):
+    path = tmp_path / "exam rules.fake"
+    path.write_text("ignored")
+    processor = DocumentProcessor(
+        extractors=[TitlePageExtractor()],
+        cleaner=TextCleaner(),
+        chunker=WordChunker(chunk_size=10, overlap=2),
+        classifier=KeywordCategoryClassifier(),
+        heading_finder=TitlePageHeading(max_title_words=5),
+    )
+
+    records = processor.process_file(path)
+
+    assert all(r["metadata"]["page_number"] == 2 for r in records)      # no chunk for the title page
+    assert all(r["text"].startswith("EXAM RULES: ") for r in records)
+    assert all(r["metadata"]["heading"] == "EXAM RULES" for r in records)
+    assert max(r["metadata"]["word_count"] for r in records) <= 10      # the heading counts toward the size
+
+
+def test_title_pages_need_a_longer_page_after_them():
+    finder = TitlePageHeading(max_title_words=5)
+    short_only = [(1, "Students must attend"), (2, "lectures")]
+
+    assert finder.split(short_only) == (None, short_only)
+    assert finder.split([(1, "one two three four five six")]) == (None, [(1, "one two three four five six")])
+
+
+def test_a_long_title_page_is_dropped_but_is_not_a_heading():
+    finder = TitlePageHeading(max_title_words=10, max_heading_words=3)
+    content = (2, "one two three four five six seven eight nine ten eleven")
+
+    assert finder.split([(1, "MBA HANDBOOK MINISTRY APPROVED"), content]) == (None, [content])
+    assert finder.split([(1, "MBA HANDBOOK"), content]) == ("MBA HANDBOOK", [content])
+
+
+def test_chunker_keeps_room_for_a_heading():
+    chunks = WordChunker(chunk_size=4, overlap=1).split("a b c d e f", reserve=1)
+
+    assert chunks == ["a b c", "c d e", "e f"]

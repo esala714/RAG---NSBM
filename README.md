@@ -123,8 +123,9 @@ cite its source exactly.
 | Extraction | Reads PDF files page by page with `pypdf`, DOCX files (paragraphs and tables) with `python-docx`, and TXT files as UTF-8. Page numbers start at 1 |
 | Cleaning | Turns ligature and maths characters into plain letters (`ﬀ` → `ff`, `𝐺𝑃𝐴` → `GPA`), repairs ligatures written as glyph names (`/f_irst` → `first`), removes null characters, turns tabs into spaces, collapses repeated spaces and keeps at most one blank line between paragraphs |
 | Repair | Joins words that the PDF text layer split in two (`exa mination` → `examination`), using the vocabulary of the same document (see below) |
-| Chunking | Splits each page into windows of 180 words with a 40-word overlap, so a sentence cut at the end of one chunk appears whole at the start of the next. Chunking restarts on every page, so a chunk never spans two pages |
-| Labelling | Adds metadata to every chunk: source file, title, category, file type, page number, chunk index, word count and a SHA-256 hash of the file |
+| Title page | A cover page with only a title is not chunked on its own; a short title is put in front of every chunk of the document as a heading (see below) |
+| Chunking | Splits each page into windows of 180 words with a 40-word overlap, so a sentence cut at the end of one chunk appears whole at the start of the next. Chunking restarts on every page, so a chunk never spans two pages. The heading counts toward the 180 words |
+| Labelling | Adds metadata to every chunk: source file, title, heading, category, file type, page number, chunk index, word count and a SHA-256 hash of the file |
 | Export | Writes one chunk per line to `data/processed/chunks.jsonl`, the input for `scripts/build_index.py --chunks` |
 
 **How the chunks are calculated**
@@ -157,13 +158,14 @@ Both values can be changed with `--chunk-size` and `--overlap`.
 {"id": "NSBM academic appeals policy-1-1",
  "text": "Academic Appeals Policy NSBM Green University handles academic appeals ...",
  "metadata": {"source": "NSBM academic appeals policy.pdf", "doc_title": "NSBM academic appeals policy",
-              "category": "academic_policies", "file_type": "pdf", "page_number": 1,
+              "heading": null, "category": "academic_policies", "file_type": "pdf", "page_number": 1,
               "chunk_index": 1, "word_count": 180, "doc_hash": "a418c6f4...74a7"}}
 ```
 
 | Field | Why it is there |
 | --- | --- |
 | `source`, `page_number` | The citation shown in the answer, e.g. *NSBM academic appeals policy.pdf, page 1* |
+| `heading` | The short title of the document's cover page, also put in front of the chunk text (`null` if the document has none) |
 | `category` | Lets the retriever filter by topic (examinations, registration, attendance, ...) |
 | `chunk_index` | Position of the chunk inside its page |
 | `word_count` | Quick check for empty or very short chunks |
@@ -179,22 +181,23 @@ The category is chosen from keywords in the file name, and the first matching ru
 ```
 [OK] NSBM academic appeals policy.pdf: 5 chunks
 [OK] Examination Regulations_Instructions To Candidates.pdf: 12 chunks (13 split words repaired)
-[OK] NSBM Degree Programmes_Exam By Laws _ Version 1 (17.2 onwards) _Students.pdf: 7 chunks (2 split words repaired)
+[OK] Revision to NSBM EC Guidelines to students from Aug2023.pdf: 6 chunks
+[OK] NSBM Degree Programmes_Exam By Laws _ Version 1 (17.2 onwards) _Students.pdf: 6 chunks (2 split words repaired)
 [OK] NSBM_Lecturers_Qualifications_Updated_2026.pdf: 5 chunks
-[OK] NSBM student handbook 7.pdf: 80 chunks (7 split words repaired)
+[OK] NSBM student handbook 7.pdf: 79 chunks (7 split words repaired)
 ...
-Processed 155 chunks → data/processed/chunks.jsonl
+Processed 152 chunks → data/processed/chunks.jsonl
 ```
 
 | Category | Chunks |
 | --- | --- |
-| `academic_policies` | 92 |
-| `examinations` | 45 |
+| `academic_policies` | 90 |
+| `examinations` | 44 |
 | `registration` | 6 |
 | `staff` | 5 |
 | `attendance` | 4 |
 | `academic_calendar` | 3 |
-| **Total** | **155** (18 files, 145 words per chunk on average) |
+| **Total** | **152** (18 files, 148 words per chunk on average) |
 
 The processed file is committed as `data/processed/chunks.jsonl`, so Member 2 can build the
 vector store without re-running the extraction.
@@ -218,13 +221,41 @@ real words repeat and broken pieces do not, and (3) neither piece is a common sh
 Before these fixes "first" appeared 26 times in the chunks and "field" and "influence" not at all;
 now they appear 45, 13 and 16 times, so a search for them finds the student handbook.
 
+**Title pages.** Three PDFs start with a page that holds only a title, e.g. page 1 of the EC
+guidelines: *EXTENUATING CIRCUMSTANCES GUIDELINES FOR EXAMINATIONS* (5 words). As a chunk of its
+own it has no answer in it, but it names the topic, so it ranked first for "Is poor internet connectivity
+accepted as an extenuating circumstance?" (q13), above page 3, which has the answer but never
+uses the word "extenuating". `TitlePageHeading` now treats the leading pages of at most 20 words as the
+title page: they are never chunked on their own, and a title of at most 10 words is put in front of
+every chunk of that document (`EXTENUATING CIRCUMSTANCES GUIDELINES FOR EXAMINATIONS: ...`).
+The chunker keeps room for it, so no chunk is longer than 180 words.
+
+The longer cover pages of the student handbook (11 words, *MBS/MBA STUDENT HANDBOOK MINISTRY OF
+HIGHER EDUCATION AND UGC APPROVED PROGRAMMES*) and the Exam By-Laws (17 words, with the intake
+year) are dropped without becoming a heading. Measured with the offline evaluation (TF-IDF, k = 4):
+
+| Variant | Chunks | MRR | Context Relevance | Context Recall | Top score, unanswerable |
+| --- | --- | --- | --- | --- | --- |
+| Before (title pages are chunks) | 155 | 0.857 | 0.500 | 0.841 | 0.191 |
+| **Short titles as headings (used)** | 152 | 0.857 | 0.500 | 0.857 | 0.191 |
+| Every title page as a heading | 157 | 0.821 | 0.536 | 0.871 | 0.226 |
+| Short titles as headings, 150-word chunks | 184 | 0.786 | 0.464 | 0.810 | 0.210 |
+| Short titles as headings, 120-word chunks | 223 | 0.857 | 0.446 | 0.813 | 0.266 |
+
+Putting the handbook's 11-word cover text on all of its chunks brings more matching words into the
+context, but it adds the same words to all 83 handbook chunks, pushes a handbook chunk above the answer for q09
+and raises the score of the unanswerable parking question (0.191 → 0.226), which makes refusing
+harder. Smaller chunks do not help either: they cut the answering passages into more pieces, so
+less of each passage is retrieved. The text about poor internet in q13 is at word 78 of its
+180-word chunk, inside what MiniLM reads, so the chunk size was not the reason it ranked low.
+
 **Running it**
 
 ```
 pip install -r requirements.txt
 python -m src.ingestion.document_processor --input data/raw --output data/processed/chunks.jsonl
 python scripts/build_index.py --chunks data/processed/chunks.jsonl --reset    (hand the chunks to Member 2)
-python -m pytest -q tests/test_document_processor.py tests/test_ingestion_classes.py   (15 tests, offline)
+python -m pytest -q tests/test_document_processor.py tests/test_ingestion_classes.py   (19 tests, offline)
 ```
 
 **Design**
@@ -236,6 +267,7 @@ python -m pytest -q tests/test_document_processor.py tests/test_ingestion_classe
  DocumentProcessor ──► BaseExtractor (ABC) ── PdfExtractor │ DocxExtractor │ TxtExtractor
                    ──► TextCleaner           (characters and whitespace, one method per rule)
                    ──► SplitWordRepairer     (optional; uses the whole document's vocabulary)
+                   ──► TitlePageHeading      (optional; title page → heading of every chunk)
                    ──► WordChunker           (180-word windows, 40-word overlap)
                    ──► KeywordCategoryClassifier
 ```
@@ -244,12 +276,13 @@ python -m pytest -q tests/test_document_processor.py tests/test_ingestion_classe
 | --- | --- | --- |
 | `src/ingestion/extractors.py` | `BaseExtractor` (ABC), `PdfExtractor`, `DocxExtractor`, `TxtExtractor` | One class per file type (Strategy pattern) |
 | `src/ingestion/text_cleaning.py` | `TextCleaner`, `SplitWordRepairer` | Clean and repair the extracted text |
+| `src/ingestion/headings.py` | `TitlePageHeading` | Finds the title page and turns a short title into a heading |
 | `src/ingestion/chunking.py` | `WordChunker` | Sliding-window chunking |
 | `src/ingestion/categories.py` | `KeywordCategoryClassifier` | Category from the file name |
 | `src/ingestion/document_processor.py` | `DocumentProcessor`, `build_processor()` | Runs the pipeline and writes `chunks.jsonl` |
 
 - **Interfaces and Dependency Injection:** `DocumentProcessor` receives its extractors, cleaner,
-  repairer, chunker and classifier through its constructor and only knows the `BaseExtractor`
+  repairer, heading finder, chunker and classifier through its constructor and only knows the `BaseExtractor`
   interface, so a new format (e.g. OCR for scanned PDFs) is one new class. The tests inject a
   `FakeExtractor` and a 3-word chunker to check the pipeline without any real document.
 - **Same interface as before:** the functions `process_file()`, `clean_text()`, `split_into_chunks()`
@@ -270,6 +303,11 @@ python -m pytest -q tests/test_document_processor.py tests/test_ingestion_classe
 - The split-word repair is deliberately cautious: a broken word whose joined form never appears
   intact in the same document (e.g. `Addit ional`) is left as it is.
 - Categories come from file names, so a badly named file is labelled `general`.
+- A title page is recognised by its length only: a cover page of more than 20 words, or a title in
+  the middle of a page, is not found.
+- `pypdf` reads a two-column table row by row, so the two columns end up mixed in one chunk (page 3
+  of the EC guidelines mixes "Long-term health conditions" with "Technical issues"). That makes
+  the chunk match either topic less well.
 ---
 
 ## Embeddings and retrieval (Member 2)
@@ -419,14 +457,14 @@ Words are compared with Member 2's tokenizer (lower case, stop words removed, li
 removed first, and fragments shorter than 3 content words are not checked.
 
 **Results: offline TF-IDF baseline** (`python -m src.evaluation.evaluate`, k = 4,
-155 chunks of up to 180 words from 18 documents, with the PDF text repairs)
+152 chunks of up to 180 words from 18 documents, with the PDF text repairs and title pages as headings)
 
-| Metric | Score | First data version (74 chunks of up to 700 words, 19 documents) |
-| --- | --- | --- |
-| Hit@4 | 12 / 14 = 0.857 | 13 / 14 = 0.929 |
-| MRR | 0.857 | 0.756 |
-| Context Relevance | 0.500 | 0.464 |
-| Context Recall | 0.841 | not measured |
+| Metric | Score | Before the title-page change (155 chunks) | First data version (74 chunks of up to 700 words, 19 documents) |
+| --- | --- | --- | --- |
+| Hit@4 | 12 / 14 = 0.857 | 12 / 14 = 0.857 | 13 / 14 = 0.929 |
+| MRR | 0.857 | 0.857 | 0.756 |
+| Context Relevance | 0.500 | 0.500 | 0.464 |
+| Context Recall | 0.857 | 0.841 | not measured |
 
 - The right document was in the top 4 for 12 of the 14 questions. The misses are q05 (repeat exam
   fee), where the word "examination" ranks the longer examination-rules documents above the one-page
@@ -437,17 +475,21 @@ removed first, and fragments shorter than 3 content words are not checked.
   off-topic text into the context (Context Relevance 0.464 → 0.500), but TF-IDF alone misses one
   more question. The main reason for 180-word chunks is dense search (see Member 1), which this
   offline run does not use.
-- On average 84% of the words of the answering passage are in the 4 retrieved chunks. Context
+- On average 86% of the words of the answering passage are in the 4 retrieved chunks. Context
   Recall also catches what Hit@4 misses: q11 counts as a hit because the registration policy is an
   accepted source, but the passage with the A/L entry requirements is in the course registration
   guideline, so its recall is only 0.40.
+- With the heading on every chunk of the EC guidelines, q04 (deadline for an EC claim) now gets
+  the whole answering passage (Context Recall 0.77 → 1.00), and for q13 the answering chunk on
+  page 3 ranks first instead of the title page.
 - TF-IDF scores cannot separate answerable from unanswerable questions: the parking question scores
-  0.191, above three answerable questions (0.174, 0.174 and 0.133). The agent's refusal threshold
+  0.191, above four answerable questions (0.186, 0.174, 0.173 and 0.133). The agent's refusal threshold
   (`min_score`) should therefore be chosen from the dense cosine scores of the `--retriever hybrid`
   run, between the two "top score" values that the report prints.
 
 **Results: full system** (hybrid retrieval with MiniLM and the agent with Gemini, k = 4, run by
-Member 2 on the same 155 chunks; the threshold study is in [`README_member2.md`](README_member2.md))
+Member 2 on the 155 chunks from before the title-page change, so its TF-IDF column is that version's;
+the threshold study is in [`README_member2.md`](README_member2.md))
 
 | Retrieval metric | Hybrid (`--retriever hybrid`) | TF-IDF baseline |
 | --- | --- | --- |
