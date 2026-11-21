@@ -153,7 +153,7 @@ RETRIEVAL_MODE=hybrid
 * **Sparse:** `tf = 1 + log(count)`, `idf = log((1+N)/(1+df)) + 1`, and the vectors are L2-normalised. The cosine equals the sum of the `q_i x d_i` products of the shared words.
 * **Fusion:** Reciprocal Rank Fusion with k = 60 uses ranks only, so the two score scales never have to be compared directly.
 
-## Results (155 chunks of up to 180 words from 18 documents, MiniLM, k = 4)
+## Results (155 chunks of up to 180 words from 18 documents, after Member 1's PDF text repairs; MiniLM, k = 4)
 
 ### Retrieval quality
 
@@ -162,10 +162,12 @@ RETRIEVAL_MODE=hybrid
 | Metric | Hybrid (this module) | TF-IDF only (Member 1's baseline) |
 |---|---|---|
 | Hit@4 | 14/14 = 1.000 | 12/14 = 0.857 |
-| MRR | 0.875 | 0.857 |
-| Context Relevance | 0.500 | 0.518 |
+| MRR | 0.881 | 0.857 |
+| Context Relevance | 0.500 | 0.500 |
+| Context Recall | 0.906 | 0.841 |
 
-TF-IDF alone misses q05 (repeat exam fee) and q14 (intake months), where the question and the document use different words. Hybrid search finds both, because the dense side matches meaning.
+* TF-IDF alone misses q05 (repeat exam fee) and q14 (intake months), where the question and the document use different words. Hybrid search finds both, because the dense side matches meaning. q14 is only just found (rank 3, Context Recall 0.33).
+* Context Recall rises from 0.841 to 0.906: more of each answering passage reaches the prompt. The clearest case is q11 (A/L entry requirements): TF-IDF brings back the registration policy (recall 0.40), hybrid search the course registration guideline that holds the passage (recall 1.00).
 
 ### Choosing the agent's `min_score`
 
@@ -176,17 +178,17 @@ TF-IDF alone misses q05 (repeat exam fee) and q14 (intake months), where the que
 | 0.20 | 14 | 1 | 0.550 |
 | 0.25 | 13 | 2 | 0.564 |
 | 0.30 | 13 | 4 | 0.664 |
-| 0.35 (agent default) | 13 | 5 | 0.714 |
-| 0.40 | 12 | 6 | 0.729 |
+| 0.35 (agent default) | 13 | 4 | 0.664 |
+| 0.40 | 13 | 6 | 0.764 |
 | 0.45 | 11 | 8 | 0.793 |
 | 0.50 | 11 | 9 | 0.843 |
 | **0.54 (suggested)** | **11** | **10** | **0.893** |
 | 0.60 | 7 | 10 | 0.750 |
 
 * **Balanced accuracy** = (share of answerable questions answered + share of unanswerable questions refused) / 2, so both groups count equally. Plain accuracy would favour answering everything, because there are more answerable questions.
-* **Suggested value: 0.54**, the middle of the gap between 0.529 (x05, lecturer salary) and 0.552 (q06, repeat coursework). It refuses all 10 unanswerable questions. Three answerable questions score lower and would be refused: q09 pass mark (0.428), q12 lecturer qualifications (0.373) and q13 poor internet as an extenuating circumstance (0.209).
+* **Suggested value: 0.54**, the middle of the gap between 0.529 (x05, lecturer salary) and 0.552 (q06, repeat coursework). It refuses all 10 unanswerable questions. Three answerable questions score lower and would be refused: q09 pass mark (0.414), q12 lecturer qualifications (0.400) and q13 poor internet as an extenuating circumstance (0.209).
 * **The groups overlap:** the lowest answerable score (0.209) is below the highest unanswerable one (0.529), so no threshold gets every question right.
-* **At the current default (0.35)** the agent answers 13 of 14 answerable questions, but 5 of the 10 unanswerable questions also pass, and Gemini then has to refuse them through the prompt.
+* **At the current default (0.35)** the agent answers 13 of 14 answerable questions, but 6 of the 10 unanswerable questions also pass, and Gemini then has to refuse them through the prompt.
 
 Before `min_score` is changed:
 
