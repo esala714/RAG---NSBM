@@ -16,7 +16,7 @@ class AcademicAgent:
     def __init__(self, retriever: BaseRetriever, llm: BaseLLMClient,
                  prompt_builder: PromptBuilder, top_k: int = 4,
                  min_score: float = 0.35, max_retries: int = 2,
-                 answer_retries: int = 1,
+                 answer_retries: int = 1, max_context_chunks: int = 8,
                  trace_dir: str = "logs/traces"):
         # Dependency Injection: the agent RECEIVES its tools, it doesn't create them
         self.retriever = retriever
@@ -26,6 +26,7 @@ class AcademicAgent:
         self.min_score = min_score
         self.max_retries = max_retries
         self.answer_retries = answer_retries
+        self.max_context_chunks = max_context_chunks
         self.trace_dir = Path(trace_dir)
 
     def run(self, question: str) -> RAGResponse:
@@ -48,7 +49,7 @@ class AcademicAgent:
             return self._persist(response)
 
         trace.append(AgentStep("observation",
-                               f"Using {len(evidence)} chunks, best score {evidence[0].score:.3f}"))
+                               f"Using {len(evidence)} chunks, best score {max(c.score for c in evidence):.3f}"))
 
         # 5. ACTION: generate a grounded answer
         prompt = self.prompts.build_answer_prompt(question, evidence)
@@ -92,13 +93,21 @@ class AcademicAgent:
         return [question]   # fallback: just search the original question
 
     def _gather_evidence(self, queries: list[str], trace: list[AgentStep]) -> list[RetrievedChunk]:
-        best: dict[tuple, RetrievedChunk] = {}
-        for query in queries:
-            for chunk in self._search_with_retry(query, trace):
-                key = (chunk.source, chunk.page, chunk.text[:60])   # remove duplicates
-                if key not in best or chunk.score > best[key].score:
-                    best[key] = chunk
-        return sorted(best.values(), key=lambda c: c.score, reverse=True)[: self.top_k]
+        """Merge the searches in the retriever's own order (round robin):
+        the best chunk of each search first, then the second best, and so on.
+        Re-sorting by one score would drop chunks the hybrid search found by keywords."""
+        per_query = [self._search_with_retry(q, trace) for q in queries]
+        evidence: list[RetrievedChunk] = []
+        seen: set[tuple] = set()
+        for position in range(max((len(r) for r in per_query), default=0)):
+            for results in per_query:
+                if position < len(results):
+                    chunk = results[position]
+                    key = (chunk.source, chunk.page, chunk.text[:60])   # remove duplicates
+                    if key not in seen:
+                        seen.add(key)
+                        evidence.append(chunk)
+        return evidence[: self.max_context_chunks]
 
     def _search_with_retry(self, query: str, trace: list[AgentStep]) -> list[RetrievedChunk]:
         for attempt in range(self.max_retries + 1):
@@ -106,9 +115,10 @@ class AcademicAgent:
             top = max((c.score for c in chunks), default=0.0)
             trace.append(AgentStep("action",
                                    f"search('{query}') -> {len(chunks)} chunks, top score {top:.3f}"))
-            good = [c for c in chunks if c.score >= self.min_score]
-            if good:
-                return good
+            # min_score decides whether this search succeeded. If it did, keep ALL its
+            # chunks: a chunk found by keywords can have a low dense score but hold the answer.
+            if top >= self.min_score:
+                return chunks
             if attempt < self.max_retries:
                 trace.append(AgentStep("reasoning",
                                        f"Top score {top:.3f} < threshold {self.min_score}. Rewriting query."))
@@ -141,7 +151,7 @@ class AcademicAgent:
         if not evidence:
             return None
         trace.append(AgentStep("observation",
-                               f"Using {len(evidence)} new chunks, best score {evidence[0].score:.3f}"))
+                               f"Using {len(evidence)} new chunks, best score {max(c.score for c in evidence):.3f}"))
         try:
             answer = self.llm.generate(self.prompts.build_answer_prompt(question, evidence)).strip()
         except LLMUnavailableError as error:
