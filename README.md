@@ -122,6 +122,7 @@ cite its source exactly.
 | --- | --- |
 | Extraction | Reads PDF files page by page with `pypdf`, DOCX files (paragraphs and tables) with `python-docx`, and TXT files as UTF-8. Page numbers start at 1 |
 | Cleaning | Turns ligature and maths characters into plain letters (`ﬀ` → `ff`, `𝐺𝑃𝐴` → `GPA`), repairs ligatures written as glyph names (`/f_irst` → `first`), removes null characters, turns tabs into spaces, collapses repeated spaces and keeps at most one blank line between paragraphs |
+| Chatbot text | Removes citation marks (`[1, 2]`) and follow-up offers (`If you'd like, let me know: ...`) that an AI chatbot left in 8 of the documents (see below) |
 | Repair | Joins words that the PDF text layer split in two (`exa mination` → `examination`), using the vocabulary of the same document (see below) |
 | Title page | A cover page with only a title is not chunked on its own; a short title is put in front of every chunk of the document as a heading (see below) |
 | Chunking | Splits each page into windows of 180 words with a 40-word overlap, so a sentence cut at the end of one chunk appears whole at the start of the next. Chunking restarts on every page, so a chunk never spans two pages. The heading counts toward the 180 words |
@@ -179,25 +180,26 @@ The category is chosen from keywords in the file name, and the first matching ru
 **Real output** for the 18 NSBM documents in `data/raw/`:
 
 ```
-[OK] NSBM academic appeals policy.pdf: 5 chunks
+[OK] NSBM academic appeals policy.pdf: 5 chunks (2 chatbot offers removed, 12 citation marks removed)
+[OK] NSBM Assessment Guideline.pdf: 6 chunks (1 chatbot offer removed, 16 citation marks removed)
 [OK] Examination Regulations_Instructions To Candidates.pdf: 12 chunks (13 split words repaired)
 [OK] Revision to NSBM EC Guidelines to students from Aug2023.pdf: 6 chunks
 [OK] NSBM Degree Programmes_Exam By Laws _ Version 1 (17.2 onwards) _Students.pdf: 6 chunks (2 split words repaired)
 [OK] NSBM_Lecturers_Qualifications_Updated_2026.pdf: 5 chunks
 [OK] NSBM student handbook 7.pdf: 79 chunks (7 split words repaired)
 ...
-Processed 152 chunks → data/processed/chunks.jsonl
+Processed 148 chunks → data/processed/chunks.jsonl
 ```
 
 | Category | Chunks |
 | --- | --- |
 | `academic_policies` | 90 |
-| `examinations` | 44 |
+| `examinations` | 43 |
 | `registration` | 6 |
 | `staff` | 5 |
-| `attendance` | 4 |
-| `academic_calendar` | 3 |
-| **Total** | **152** (18 files, 148 words per chunk on average) |
+| `academic_calendar` | 2 |
+| `attendance` | 2 |
+| **Total** | **148** (18 files, 148 words per chunk on average) |
 
 The processed file is committed as `data/processed/chunks.jsonl`, so Member 2 can build the
 vector store without re-running the extraction.
@@ -217,9 +219,30 @@ answers about GPA now cite the university's own document.
 `SplitWordRepairer` joins two neighbouring words only when (1) the joined word appears intact
 elsewhere in the same document, (2) one of the two pieces is rare there (at most twice), because
 real words repeat and broken pieces do not, and (3) neither piece is a common short word, so
-"a way" can never become "away". It repaired 22 words in 3 documents, and every repair is printed.
+"a way" can never become "away". It repaired 22 words in 3 documents, and the number of repairs is printed for every file.
 Before these fixes "first" appeared 26 times in the chunks and "field" and "influence" not at all;
 now they appear 45, 13 and 16 times, so a search for them finds the student handbook.
+
+**Text written by an AI chatbot.** Eight documents in `data/raw/` are not official NSBM
+documents but summaries of NSBM rules that an AI chatbot wrote: the academic appeals policy,
+academic calendar, Assessment Guideline, attendance policy, course registration guideline,
+"NSBM Green University enforces structured examination regulations", student leave policy and
+student registration policy. Next to the facts, they keep two things the chatbot wrote for the
+person it was talking to:
+
+| Chatbot text | Example | Why it is removed |
+| --- | --- | --- |
+| Citation marks (66) | `... at least 50% (combining CA and exam marks). [1, 2]` | They point to web pages that are not in the document, and they look exactly like the agent's own citations, where `[1]` means the first retrieved chunk |
+| Follow-up offers (10) | `If you want me to look up something more specific, let me know: • Your Faculty ...` | They name faculties, programmes and intakes, so they match many questions without answering any of them |
+
+`ChatbotTextRemover` deletes every mark, and every offer from its first line to the end of its
+paragraph, which holds the list of questions for the user. An offer is found by how it starts
+(`If you`, `To give you`, ...) together with a promise in its first 40 words (`let me know`,
+`I can help`), so ordinary sentences such as "If you miss an examination, submit an EC form" are
+kept. All 10 offers are found, nothing in the official documents is touched, and
+`chunks.jsonl` goes from 152 to 148 chunks.
+Five of the 14 answerable evaluation questions (q03, q09, q10, q11, q14) are answered from these
+documents, so their answers rest on a chatbot's summary rather than on an official NSBM text.
 
 **Title pages.** Three PDFs start with a page that holds only a title, e.g. page 1 of the EC
 guidelines: *EXTENUATING CIRCUMSTANCES GUIDELINES FOR EXAMINATIONS* (5 words). As a chunk of its
@@ -232,7 +255,8 @@ The chunker keeps room for it, so no chunk is longer than 180 words.
 
 The longer cover pages of the student handbook (11 words, *MBS/MBA STUDENT HANDBOOK MINISTRY OF
 HIGHER EDUCATION AND UGC APPROVED PROGRAMMES*) and the Exam By-Laws (17 words, with the intake
-year) are dropped without becoming a heading. Measured with the offline evaluation (TF-IDF, k = 4):
+year) are dropped without becoming a heading. Measured with the offline evaluation (TF-IDF, k = 4,
+before the chatbot text was removed):
 
 | Variant | Chunks | MRR | Context Relevance | Context Recall | Top score, unanswerable |
 | --- | --- | --- | --- | --- | --- |
@@ -255,7 +279,7 @@ less of each passage is retrieved. The text about poor internet in q13 is at wor
 pip install -r requirements.txt
 python -m src.ingestion.document_processor --input data/raw --output data/processed/chunks.jsonl
 python scripts/build_index.py --chunks data/processed/chunks.jsonl --reset    (hand the chunks to Member 2)
-python -m pytest -q tests/test_document_processor.py tests/test_ingestion_classes.py   (19 tests, offline)
+python -m pytest -q tests/test_document_processor.py tests/test_ingestion_classes.py   (22 tests, offline)
 ```
 
 **Design**
@@ -266,6 +290,7 @@ python -m pytest -q tests/test_document_processor.py tests/test_ingestion_classe
                            ▼
  DocumentProcessor ──► BaseExtractor (ABC) ── PdfExtractor │ DocxExtractor │ TxtExtractor
                    ──► TextCleaner           (characters and whitespace, one method per rule)
+                   ──► ChatbotTextRemover    (optional; citation marks and follow-up offers)
                    ──► SplitWordRepairer     (optional; uses the whole document's vocabulary)
                    ──► TitlePageHeading      (optional; title page → heading of every chunk)
                    ──► WordChunker           (180-word windows, 40-word overlap)
@@ -276,13 +301,14 @@ python -m pytest -q tests/test_document_processor.py tests/test_ingestion_classe
 | --- | --- | --- |
 | `src/ingestion/extractors.py` | `BaseExtractor` (ABC), `PdfExtractor`, `DocxExtractor`, `TxtExtractor` | One class per file type (Strategy pattern) |
 | `src/ingestion/text_cleaning.py` | `TextCleaner`, `SplitWordRepairer` | Clean and repair the extracted text |
+| `src/ingestion/chatbot_text.py` | `ChatbotTextRemover` | Removes what an AI chatbot wrote for its user |
 | `src/ingestion/headings.py` | `TitlePageHeading` | Finds the title page and turns a short title into a heading |
 | `src/ingestion/chunking.py` | `WordChunker` | Sliding-window chunking |
 | `src/ingestion/categories.py` | `KeywordCategoryClassifier` | Category from the file name |
 | `src/ingestion/document_processor.py` | `DocumentProcessor`, `build_processor()` | Runs the pipeline and writes `chunks.jsonl` |
 
 - **Interfaces and Dependency Injection:** `DocumentProcessor` receives its extractors, cleaner,
-  repairer, heading finder, chunker and classifier through its constructor and only knows the `BaseExtractor`
+  chatbot-text remover, repairer, heading finder, chunker and classifier through its constructor and only knows the `BaseExtractor`
   interface, so a new format (e.g. OCR for scanned PDFs) is one new class. The tests inject a
   `FakeExtractor` and a 3-word chunker to check the pipeline without any real document.
 - **Same interface as before:** the functions `process_file()`, `clean_text()`, `split_into_chunks()`
@@ -303,6 +329,9 @@ python -m pytest -q tests/test_document_processor.py tests/test_ingestion_classe
 - The split-word repair is deliberately cautious: a broken word whose joined form never appears
   intact in the same document (e.g. `Addit ional`) is left as it is.
 - Categories come from file names, so a badly named file is labelled `general`.
+- The chatbot-text removal knows only the offer wordings found in these documents; an offer that
+  starts or promises differently would be kept. The facts in the chatbot-written documents are
+  kept as they are and are not checked against official NSBM sources.
 - A title page is recognised by its length only: a cover page of more than 20 words, or a title in
   the middle of a page, is not found.
 - `pypdf` reads a two-column table row by row, so the two columns end up mixed in one chunk (page 3
@@ -439,6 +468,8 @@ The evaluation module (`src/evaluation/`) checks the system against a hand-check
 | --- | --- | --- |
 | Hit@k | Did retrieval find the right document? | 1 if any of the top *k* chunks comes from an expected source, else 0 |
 | MRR | How high was the right document ranked? | Mean of 1 / rank of the first chunk from an expected source |
+| Chunk Hit@k | Did retrieval find the chunk with the answer? | 1 if any of the top *k* chunks holds at least 90% of the content words of the ground-truth context passage, else 0 |
+| Chunk MRR | How high was the chunk with the answer ranked? | Mean of 1 / rank of the first chunk that holds the passage |
 | Context Relevance | How much of the context is on topic? | Chunks containing a relevant term / chunks retrieved |
 | Context Recall | Was the passage that answers the question retrieved? | Words of the ground-truth context passage found in the retrieved chunks / words of the passage |
 | Groundedness (Faithfulness) | Is every claim in the answer backed by the context? | Answer sentences with at least 60% of their content words in the retrieved chunks / sentences checked |
@@ -456,15 +487,23 @@ Words are compared with Member 2's tokenizer (lower case, stop words removed, li
 "examinations" in an answer matches "examination" in a chunk. Citation markers such as [1] are
 removed first, and fragments shorter than 3 content words are not checked.
 
-**Results: offline TF-IDF baseline** (`python -m src.evaluation.evaluate`, k = 4,
-152 chunks of up to 180 words from 18 documents, with the PDF text repairs and title pages as headings)
+Hit@k and MRR are document-level: a chunk from the right document counts even when it is a title
+page or another section. Chunk Hit@k and Chunk MRR are chunk-level and ask whether the answer itself
+was retrieved. The 90% line separates the two cleanly: every question has a chunk that holds its
+whole passage (100%), and no other chunk holds more than 86% of any passage.
 
-| Metric | Score | Before the title-page change (155 chunks) | First data version (74 chunks of up to 700 words, 19 documents) |
-| --- | --- | --- | --- |
-| Hit@4 | 12 / 14 = 0.857 | 12 / 14 = 0.857 | 13 / 14 = 0.929 |
-| MRR | 0.857 | 0.857 | 0.756 |
-| Context Relevance | 0.500 | 0.500 | 0.464 |
-| Context Recall | 0.857 | 0.841 | not measured |
+**Results: offline TF-IDF baseline** (`python -m src.evaluation.evaluate`, k = 4,
+148 chunks of up to 180 words from 18 documents, with the PDF text repairs, title pages as headings
+and the chatbot text removed)
+
+| Metric | Score | Before the chatbot text was removed (152 chunks) | Before the title-page change (155 chunks) | First data version (74 chunks of up to 700 words, 19 documents) |
+| --- | --- | --- | --- | --- |
+| Hit@4 | 12 / 14 = 0.857 | 12 / 14 = 0.857 | 12 / 14 = 0.857 | 13 / 14 = 0.929 |
+| MRR | 0.821 | 0.857 | 0.857 | 0.756 |
+| Chunk Hit@4 | 11 / 14 = 0.786 | 11 / 14 = 0.786 | 10 / 14 = 0.714 | not measured |
+| Chunk MRR | 0.607 | 0.607 | 0.577 | not measured |
+| Context Relevance | 0.482 | 0.500 | 0.500 | 0.464 |
+| Context Recall | 0.857 | 0.857 | 0.841 | not measured |
 
 - The right document was in the top 4 for 12 of the 14 questions. The misses are q05 (repeat exam
   fee), where the word "examination" ranks the longer examination-rules documents above the one-page
@@ -479,16 +518,24 @@ removed first, and fragments shorter than 3 content words are not checked.
   Recall also catches what Hit@4 misses: q11 counts as a hit because the registration policy is an
   accepted source, but the passage with the A/L entry requirements is in the course registration
   guideline, so its recall is only 0.40.
+- The chunk-level scores show the gap that document-level scores hide: Chunk MRR (0.607) is well
+  below MRR (0.821). q11 counts as a document hit, but no retrieved chunk holds the A/L requirements;
+  q04, q06, q09 and q12 have the answering chunk only at rank 4, 4, 2 and 2.
 - With the heading on every chunk of the EC guidelines, q04 (deadline for an EC claim) now gets
-  the whole answering passage (Context Recall 0.77 → 1.00), and for q13 the answering chunk on
-  page 3 ranks first instead of the title page.
+  the whole answering passage (Context Recall 0.77 → 1.00). Before the change, q13 counted as a
+  document hit at rank 1 because of the title page, while the chunk with the answer was only at
+  rank 3; now it is at rank 1 (Chunk Hit@4 10 → 11, Chunk MRR 0.577 → 0.607).
+- Removing the chatbot text moves the answering chunk of q02 from rank 2 to 1 and that of q09 from
+  rank 1 to 2, so Chunk MRR stays at 0.607. MRR falls to 0.821 only because of q09, where a chunk
+  of the postgraduate assessment criteria now scores 0.185 and the Assessment Guideline 0.180.
 - TF-IDF scores cannot separate answerable from unanswerable questions: the parking question scores
-  0.191, above four answerable questions (0.186, 0.174, 0.173 and 0.133). The agent's refusal threshold
+  0.191, above four answerable questions (0.187, 0.185, 0.174 and 0.138). The agent's refusal threshold
   (`min_score`) should therefore be chosen from the dense cosine scores of the `--retriever hybrid`
   run, between the two "top score" values that the report prints.
 
 **Results: full system** (hybrid retrieval with MiniLM and the agent with Gemini, k = 4, run by
-Member 2 on the 155 chunks from before the title-page change, so its TF-IDF column is that version's;
+Member 2 on the 155 chunks from before the title-page change and the chatbot-text removal, so its
+TF-IDF column is that version's; they will be run again on the 148 chunks;
 the threshold study is in [`README_member2.md`](README_member2.md))
 
 | Retrieval metric | Hybrid (`--retriever hybrid`) | TF-IDF baseline |
