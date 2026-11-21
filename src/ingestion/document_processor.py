@@ -1,6 +1,7 @@
 """Extract, clean, chunk and label academic-administration documents.
 
-    extract (BaseExtractor) -> clean (TextCleaner) -> repair split words (SplitWordRepairer)
+    extract (BaseExtractor) -> clean (TextCleaner) -> remove chatbot text (ChatbotTextRemover)
+    -> repair split words (SplitWordRepairer)
     -> title page as heading (TitlePageHeading) -> chunk (WordChunker) -> label (KeywordCategoryClassifier)
 
 DocumentProcessor receives every part through its constructor (Dependency Injection) and
@@ -15,27 +16,46 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
 from .categories import KeywordCategoryClassifier
+from .chatbot_text import ChatbotRemovals, ChatbotTextRemover
 from .chunking import CHUNK_OVERLAP, CHUNK_SIZE, WordChunker
 from .extractors import BaseExtractor, Page, default_extractors
 from .headings import TitlePageHeading
 from .text_cleaning import SplitWordRepairer, TextCleaner
 
 
+@dataclass
+class CleaningReport:
+    """What was fixed in one document, printed by process_directory()."""
+
+    repairs: list[str] = field(default_factory=list)                # "exa mination -> examination"
+    chatbot: ChatbotRemovals = field(default_factory=ChatbotRemovals)
+
+    def summary(self) -> str:
+        counts = [(len(self.repairs), "split word", "repaired"),
+                  (len(self.chatbot.offers), "chatbot offer", "removed"),
+                  (self.chatbot.citation_marks, "citation mark", "removed")]
+        parts = [f"{n} {name}{'s' if n > 1 else ''} {done}" for n, name, done in counts if n]
+        return f" ({', '.join(parts)})" if parts else ""
+
+
 class DocumentProcessor:
     def __init__(self, extractors: Sequence[BaseExtractor], cleaner: TextCleaner,
                  chunker: WordChunker, classifier: KeywordCategoryClassifier,
                  repairer: SplitWordRepairer | None = None,
-                 heading_finder: TitlePageHeading | None = None):
+                 heading_finder: TitlePageHeading | None = None,
+                 chatbot_remover: ChatbotTextRemover | None = None):
         self.extractors = list(extractors)
         self.cleaner = cleaner
         self.chunker = chunker
         self.classifier = classifier
         self.repairer = repairer      # optional: None keeps the text exactly as cleaned
         self.heading_finder = heading_finder    # optional: None chunks every page as it is
+        self.chatbot_remover = chatbot_remover  # optional: None keeps citation marks and offers
 
     @property
     def supported(self) -> set[str]:
@@ -51,18 +71,21 @@ class DocumentProcessor:
         """Extracted, cleaned and repaired text of every page."""
         return self._read_pages(path)[0]
 
-    def _read_pages(self, path: Path) -> tuple[list[Page], list[str]]:
+    def _read_pages(self, path: Path) -> tuple[list[Page], CleaningReport]:
         raw_pages = self.extractor_for(path).extract(path)
         pages = [(number, self.cleaner.clean(text)) for number, text in raw_pages]
-        if self.repairer is None:
-            return pages, []
-        return self.repairer.repair(pages)
+        report = CleaningReport()
+        if self.chatbot_remover is not None:
+            pages, report.chatbot = self.chatbot_remover.remove(pages)
+        if self.repairer is not None:
+            pages, report.repairs = self.repairer.repair(pages)
+        return pages, report
 
     def process_file(self, path: Path) -> list[dict]:
         return self._process(path)[0]
 
-    def _process(self, path: Path) -> tuple[list[dict], list[str]]:
-        pages, repairs = self._read_pages(path)
+    def _process(self, path: Path) -> tuple[list[dict], CleaningReport]:
+        pages, report = self._read_pages(path)
         heading = None
         if self.heading_finder is not None:
             heading, pages = self.heading_finder.split(pages)
@@ -88,7 +111,7 @@ class DocumentProcessor:
                         "doc_hash": digest,
                     },
                 })
-        return records, repairs
+        return records, report
 
     def process_directory(self, input_dir: Path, output_file: Path) -> int:
         """Process every supported file under input_dir; a damaged file is skipped, not fatal."""
@@ -97,10 +120,9 @@ class DocumentProcessor:
         for path in sorted(input_dir.rglob("*")):
             if path.is_file() and path.suffix.lower() in self.supported:
                 try:
-                    records, repairs = self._process(path)
+                    records, report = self._process(path)
                     all_records.extend(records)
-                    fixed = f" ({len(repairs)} split words repaired)" if repairs else ""
-                    print(f"[OK] {path.name}: {len(records)} chunks{fixed}")
+                    print(f"[OK] {path.name}: {len(records)} chunks{report.summary()}")
                 except Exception as exc:
                     print(f"[SKIP] {path.name}: {exc}")
         with output_file.open("w", encoding="utf-8") as f:
@@ -119,6 +141,7 @@ def build_processor(chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) 
         classifier=KeywordCategoryClassifier(),
         repairer=SplitWordRepairer(),
         heading_finder=TitlePageHeading(),
+        chatbot_remover=ChatbotTextRemover(),
     )
 
 

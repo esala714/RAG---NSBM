@@ -8,6 +8,7 @@ import pytest
 from docx import Document
 
 from src.ingestion.categories import KeywordCategoryClassifier
+from src.ingestion.chatbot_text import ChatbotTextRemover
 from src.ingestion.chunking import WordChunker
 from src.ingestion.document_processor import DocumentProcessor, build_processor
 from src.ingestion.extractors import BaseExtractor, DocxExtractor
@@ -170,3 +171,32 @@ def test_chunker_keeps_room_for_a_heading():
     chunks = WordChunker(chunk_size=4, overlap=1).split("a b c d e f", reserve=1)
 
     assert chunks == ["a b c", "c d e", "e f"]
+
+
+# ---- text written by an AI chatbot ----------------------------------------------
+def test_chatbot_citation_marks_are_removed():
+    pages, removed = ChatbotTextRemover().remove([(1, "Pass mark is 50% (CA and exam). [1, 2] Next rule. [3]")])
+
+    assert pages == [(1, "Pass mark is 50% (CA and exam). Next rule.")]
+    assert removed.citation_marks == 2
+
+
+def test_chatbot_offer_is_removed_to_the_end_of_its_paragraph():
+    text = ("Queries go to examinations@nsbm.ac.lk.\n"
+            "If you'd like, let me know:\n"
+            "\u2022 Your intake batch (e.g., 25.2,\n26.1)\n"
+            "\u2022 Your faculty\n"
+            " \n"
+            "Assignment rules\nLate work loses 10 marks.")
+    pages, removed = ChatbotTextRemover().remove([(2, text)])
+
+    assert pages == [(2, "Queries go to examinations@nsbm.ac.lk.\n\nAssignment rules\nLate work loses 10 marks.")]
+    assert removed.offers == ["If you'd like, let me know: \u2022 Your ..."]
+
+
+def test_ordinary_if_you_sentences_are_kept():
+    text = "If you miss an examination, submit an EC form within 14 days.\nThe board meets monthly."
+    pages, removed = ChatbotTextRemover().remove([(1, text)])
+
+    assert pages == [(1, text)]
+    assert removed.offers == []
