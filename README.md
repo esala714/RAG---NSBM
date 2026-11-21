@@ -33,9 +33,11 @@ Agent (Member 3)
    OBSERVE  → read the question
    REASON   → plan 1–3 search queries
    ACT      → search the vector store
-   OBSERVE  → check similarity scores against a threshold
-              too low → REASON: rewrite the query and search again
+   OBSERVE  → did the search's best score reach the threshold?
+              no  → REASON: rewrite the query and search again (max 2 times)
    ACT      → ask Gemini for an answer using only the retrieved chunks
+   OBSERVE  → did Gemini find the answer?
+              no  → REASON: rewrite all queries, search and answer once more
    PERSIST  → save the full trace as JSON
    ▼
 Streamlit app (Member 4) shows the answer, sources, pages and scores
@@ -58,8 +60,8 @@ RAG---NSBM/
     agent/               The agentic loop
     retrieval/           Embeddings, Chroma vector store and hybrid search
     evaluation/          Ground-truth questions, metrics and the evaluation runner
-   scripts/               Build the vector store and run search demos
-   tests/                 Test retrievers used before the vector store is connected
+  scripts/               Build the vector store and run search demos
+  tests/                 Offline pytest tests, and test retrievers for the agent
   run_demo.py            Command-line demo of the agent
   requirements.txt       Python packages
   env.example            Template for the .env settings file
@@ -69,7 +71,7 @@ RAG---NSBM/
 
 ## Setup
 
-Requires **Python 3.10 or newer**.
+Requires **Python 3.11 or newer** (tested on 3.13).
 
 1. Clone the repository and open the folder.
 2. Create and activate a virtual environment:
@@ -99,7 +101,8 @@ from Microsoft's official download page, restart the computer, and try again.
 ## Running the demo
 
 ```
-python run_demo.py
+python run_demo.py                                       (default question)
+python run_demo.py "How much is the repeat exam fee?"    (any question)
 ```
 
 The demo prints:
@@ -412,33 +415,58 @@ Full details: [`README_member2.md`](README_member2.md).
 
 ## Agentic RAG pipeline (Member 3)
 
-The `AcademicAgent` (`src/agent/academic_agent.py`) runs an explainable agentic loop:
+The `AcademicAgent` (`src/agent/academic_agent.py`) answers a question in an explainable agentic loop:
 
 | Phase | What it does |
 | --- | --- |
-| Observation | Reads the question; later checks whether retrieval scores are good enough |
-| Reasoning | Uses Gemini to split complex questions into 1–3 search queries; rewrites weak queries |
+| Observation | Reads the question; checks whether each search reached `min_score`; checks whether Gemini could answer |
+| Reasoning | Plans 1–3 search queries in the formal wording that NSBM documents use; rewrites a weak query; after a "not found" answer, rewrites all queries once more |
 | Action | Searches the vector store and asks Gemini for an answer from the retrieved chunks only |
-| Persistence | Saves the full trace (question, chunks, scores, steps, answer) to `logs/traces/` |
+| Persistence | Saves the full trace (question, chunks, scores, steps, answer) to `logs/traces/` as JSON |
 
 **Design**
 - **Interfaces (ABCs):** `BaseRetriever` and `BaseLLMClient` in `src/core/interfaces.py`.
   Any retriever or LLM that follows them can be used without changing the agent.
-- **Dependency Injection:** the agent receives its retriever, LLM client and prompt
-  builder when it is created (see `run_demo.py`), so they can be swapped easily.
+- **Dependency Injection:** the agent receives its retriever, LLM client and prompt builder in
+  `run_demo.py` (the composition root). `tests/fake_retriever.py` provides `FakeRetriever` and
+  `EmptyRetriever` for testing without the database.
+- **How `min_score` is used:** it decides whether a search succeeded (its best dense score is at
+  least `min_score`). If it did, all its chunks go to the prompt in the hybrid retriever's order,
+  so chunks found by exact words (TF-IDF) are not dropped for a low dense score. Chunks from several
+  searches are merged round robin (the best chunk of each search first), up to `max_context_chunks`.
 
 **Hallucination control**
 - Gemini runs at temperature 0.
 - The prompt allows answers **only** from the numbered context and requires citations.
-- Chunks below a similarity threshold (`min_score`, default 0.35) are not used.
-- If no chunk passes the threshold, the agent replies that the information was not found.
+- If no search reaches `min_score`, the agent refuses without asking Gemini for an answer.
+- If a search passes but the chunks do not hold the answer, the prompt makes Gemini reply
+  "not found" (this caught the canteen and cricket questions, which score above 0.35).
 
 **Error handling**
-- If Gemini is busy (HTTP 503), the client retries with increasing waits before
-  reporting a clear error, and the agent records it in the trace instead of crashing.
+- If Gemini is busy (HTTP 503), the client retries with increasing waits, then raises a clear
+  error that the agent records in the trace instead of crashing.
 
-**Settings** (in `AcademicAgent(...)`): `top_k` (chunks used, default 4),
-`min_score` (similarity threshold, default 0.35), `max_retries` (query rewrites, default 2).
+**Settings** (in `AcademicAgent(...)`)
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `top_k` | 4 | chunks requested per search |
+| `min_score` | 0.35 | dense score a search needs to count as successful (kept after the end-to-end comparison with 0.54) |
+| `max_retries` | 2 | rewrites of a weak query |
+| `answer_retries` | 1 | extra search round after a "not found" answer |
+| `max_context_chunks` | 8 | most chunks sent to Gemini |
+
+**What the agent adds over one search:** in the hybrid retrieval run, q06, q07 and q14 miss the
+answering chunk and q13 scores only 0.245, yet the agent answers all four correctly, because it
+plans several formal-wording queries and retries.
+
+**Known limitations**
+- **Names** (e.g. a lecturer's name) get very low dense scores, so a search can be rejected even
+  when TF-IDF finds the right chunk (q12).
+- **Answers can be general** when the key detail is elsewhere (q11 misses "3 simple passes").
+- **More context, longer answers:** up to 8 chunks can bring in related but unasked facts (still cited).
+- **Future work:** a hybrid (dense + sparse) confidence score for accepting a search, tool routing
+  for name lookups, and a re-ranker.
 
 ---
 
