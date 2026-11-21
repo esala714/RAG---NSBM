@@ -17,6 +17,7 @@ from typing import Any
 
 from src.core.interfaces import BaseRetriever
 from src.evaluation.metrics import (
+    answer_chunk_rank,
     answer_relevance,
     context_recall,
     context_relevance,
@@ -69,6 +70,10 @@ def evaluate_retrieval(retriever: BaseRetriever, questions: list[dict], k: int =
                 context_relevance([c.text for c in chunks], q["relevant_terms"]), 4)
             row["context_recall"] = (round(context_recall([c.text for c in chunks], q["context"]), 4)
                                      if q.get("context") else None)
+            rank = answer_chunk_rank([c.text for c in chunks], q["context"]) if q.get("context") else None
+            row["answer_chunk_rank"] = rank
+            row["chunk_hit"] = (1.0 if rank else 0.0) if q.get("context") else None
+            row["chunk_reciprocal_rank"] = (round(1.0 / rank, 4) if rank else 0.0) if q.get("context") else None
         rows.append(row)
 
     answerable = [r for r in rows if r["answerable"]]
@@ -80,6 +85,9 @@ def evaluate_retrieval(retriever: BaseRetriever, questions: list[dict], k: int =
         "hits": int(sum(r["hit"] for r in answerable)),
         "hit_rate": mean(r["hit"] for r in answerable),
         "mrr": mean(r["reciprocal_rank"] for r in answerable),
+        "chunk_hits": int(sum(r["chunk_hit"] or 0 for r in answerable)),
+        "chunk_hit_rate": mean(r["chunk_hit"] for r in answerable),
+        "chunk_mrr": mean(r["chunk_reciprocal_rank"] for r in answerable),
         "context_relevance": mean(r["context_relevance"] for r in answerable),
         "context_recall": mean(r["context_recall"] for r in answerable),
         # Compare these two to choose the agent's min_score: a good threshold lies between them.
@@ -156,7 +164,7 @@ def format_retrieval_report(result: dict, retriever_name: str) -> str:
         f"RETRIEVAL  |  retriever: {retriever_name}  |  k = {s['k']}  |  "
         f"{s['answerable_questions']} answerable + {s['unanswerable_questions']} unanswerable questions",
         LINE,
-        f"{'ID':<4} {'Hit':>3} {'RR':>5} {'CtxRel':>6} {'Recall':>6} {'Top':>6}  Best chunk",
+        f"{'ID':<4} {'Hit':>3} {'RR':>5} {'CHit':>4} {'CRR':>5} {'CtxRel':>6} {'Recall':>6} {'Top':>6}  Best chunk",
     ]
     for r in result["questions"]:
         best = r["retrieved"][0] if r["retrieved"] else None
@@ -165,15 +173,19 @@ def format_retrieval_report(result: dict, retriever_name: str) -> str:
         else:   # DOCX / TXT chunks have no page number
             where = best["source"] + (f" (p{best['page']})" if best["page"] else "")
         if r["answerable"]:
-            cells = (f"{int(r['hit']):>3} {r['reciprocal_rank']:>5.2f} {r['context_relevance']:>6.2f}"
+            cells = (f"{int(r['hit']):>3} {r['reciprocal_rank']:>5.2f} {_fmt(r['chunk_hit'], 0):>4}"
+                     f" {_fmt(r['chunk_reciprocal_rank'], 2):>5} {r['context_relevance']:>6.2f}"
                      f" {_fmt(r['context_recall'], 2):>6}")
         else:
-            cells = f"{'-':>3} {'-':>5} {'-':>6} {'-':>6}"
+            cells = f"{'-':>3} {'-':>5} {'-':>4} {'-':>5} {'-':>6} {'-':>6}"
         lines.append(_ascii(f"{r['id']:<4} {cells} {r['top_score']:>6.3f}  {where[:45]}"))
     lines += [
         LINE,
         f"Hit@{s['k']}              = {s['hits']}/{s['answerable_questions']} = {_fmt(s['hit_rate'])}",
         f"MRR                = {_fmt(s['mrr'])}",
+        f"Chunk Hit@{s['k']}        = {s['chunk_hits']}/{s['answerable_questions']} = {_fmt(s['chunk_hit_rate'])}"
+        "   (a retrieved chunk holds the answer, not only the right document)",
+        f"Chunk MRR          = {_fmt(s['chunk_mrr'])}",
         f"Context Relevance  = {_fmt(s['context_relevance'])}",
         f"Context Recall     = {_fmt(s['context_recall'])}",
         f"Top score: lowest for an answerable question = {_fmt(s['lowest_top_score_answerable'])}, "

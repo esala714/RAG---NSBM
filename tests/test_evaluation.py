@@ -10,6 +10,7 @@ import pytest
 from src.core.models import AgentStep, RAGResponse, RetrievedChunk
 from src.evaluation.evaluate import evaluate_agent, evaluate_retrieval, load_ground_truth
 from src.evaluation.metrics import (
+    answer_chunk_rank,
     answer_relevance,
     context_recall,
     context_relevance,
@@ -49,6 +50,16 @@ def test_context_recall_is_the_share_of_the_passage_retrieved():
     assert context_recall([passage], passage) == 1.0
     assert context_recall(["Canteen opening hours"], passage) == 0.0
     assert context_recall(["admitted thirty minutes"], "admitted thirty minutes late") == 0.75
+
+
+def test_answer_chunk_rank_needs_the_passage_not_only_the_document():
+    passage = "Poor internet connectivity will not be approved as an extenuating circumstance"
+    title_page = "EXTENUATING CIRCUMSTANCES GUIDELINES FOR EXAMINATIONS"
+    answer = "Technical issues: the following problems will not be approved. " + passage
+
+    assert answer_chunk_rank([title_page, answer], passage) == 2     # Hit@k would count rank 1
+    assert answer_chunk_rank([title_page], passage) is None
+    assert answer_chunk_rank(["internet connectivity"], passage) is None   # under 90% of the passage
 
 
 def test_answer_relevance_is_keyword_coverage():
@@ -101,6 +112,17 @@ def test_evaluate_retrieval_with_fake_retriever():
     assert rows[0]["top_score"] == 0.81
     assert "hit" not in rows[1]                          # unanswerable: no retrieval score
     assert summary["highest_top_score_unanswerable"] == 0.81
+    assert rows[0]["chunk_hit"] is None                  # no context passage: no chunk-level score
+
+
+def test_evaluate_retrieval_reports_chunk_level_hits():
+    question = dict(QUESTIONS[0], context="at least 80% attendance in a module to be eligible to sit "
+                                          "its final examination")
+    result = evaluate_retrieval(FakeRetriever(), [question], k=2)
+
+    assert result["questions"][0]["answer_chunk_rank"] == 1
+    assert result["summary"]["chunk_hits"] == 1
+    assert result["summary"]["chunk_mrr"] == 1.0
 
 
 def test_tfidf_retriever_returns_core_chunks():

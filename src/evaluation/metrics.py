@@ -4,6 +4,10 @@ Retrieval (no LLM needed), for each answerable question and its top-k chunks:
 
     Hit@k              = 1 if any retrieved chunk comes from an expected source document, else 0
     Reciprocal rank    = 1 / rank of the first chunk from an expected source (0 if none)
+    Chunk Hit@k        = 1 if any retrieved chunk holds the answer, else 0
+    Chunk RR           = 1 / rank of the first chunk that holds the answer (0 if none)
+                         a chunk holds the answer when it contains at least 90% of the
+                         content words of the ground-truth context passage
     Context Relevance  = (chunks containing at least one relevant term) / (chunks retrieved)
     Context Recall     = (words of the ground-truth context passage found in the chunks)
                          / (words of the passage)
@@ -26,6 +30,7 @@ from typing import Iterable, Sequence
 from src.retrieval.sparse_index import tokenize
 
 SUPPORT_THRESHOLD = 0.6     # share of a sentence's words that must appear in the context
+ANSWER_CHUNK_COVERAGE = 0.9  # share of the passage's words one chunk must hold to count as the answer
 MIN_SENTENCE_WORDS = 3      # shorter fragments ("Sources:", "[1]") are not checked
 
 _CITATION_RE = re.compile(r"\[\d+(?:\s*,\s*\d+)*\]")      # [1] or [1, 2]
@@ -59,6 +64,27 @@ def context_recall(chunk_texts: Sequence[str], reference_context: str) -> float:
         return 0.0
     retrieved = {w for text in chunk_texts for w in tokenize(text)}
     return len(passage & retrieved) / len(passage)
+
+
+def passage_coverage(chunk_text: str, reference_context: str) -> float:
+    """Share of the ground-truth passage's content words that are in this one chunk (0 to 1)."""
+    passage = set(tokenize(reference_context))
+    if not passage:
+        return 0.0
+    return len(passage & set(tokenize(chunk_text))) / len(passage)
+
+
+def answer_chunk_rank(chunk_texts: Sequence[str], reference_context: str,
+                      threshold: float = ANSWER_CHUNK_COVERAGE) -> int | None:
+    """Rank of the first retrieved chunk that holds the answering passage (None if none does).
+
+    Hit@k only asks whether a chunk comes from the right document, so a title page or another
+    section of that document also counts. This asks whether the answer itself was retrieved.
+    """
+    for rank, text in enumerate(chunk_texts, start=1):
+        if passage_coverage(text, reference_context) >= threshold:
+            return rank
+    return None
 
 
 def context_relevance(chunk_texts: Sequence[str], relevant_terms: Sequence[str]) -> float:
