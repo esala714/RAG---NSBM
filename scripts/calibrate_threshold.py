@@ -106,9 +106,12 @@ def main() -> None:
     print(LINE)
     print(f"Best threshold (middle of the widest gap with the best balanced accuracy) = {choice.threshold:.3f}, "
           f"margin {choice.margin:.3f} to the nearest score")
-    print(f"Suggested min_score = {suggested:.2f}: {answered}/{n_ans} answerable answered, "
+    print(f"Best min_score on these scores = {suggested:.2f}: {answered}/{n_ans} answerable answered, "
           f"{refused}/{n_unans} unanswerable refused, "
           f"balanced accuracy {balanced_accuracy(answered, refused, n_ans, n_unans):.3f}")
+
+    print("Check it end to end before changing the agent: "
+          f"python -m src.evaluation.evaluate --retriever hybrid --with-agent --min-score {suggested:.2f}")
 
     wrong = [(qid, text, ok, s) for qid, text, ok, s in rows if (s >= suggested) != ok]
     for qid, text, can_answer, score in wrong:
