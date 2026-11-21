@@ -92,6 +92,10 @@ Requires **Python 3.10 or newer**.
 
 ---
 
+**Windows note:** if Python crashes with *"Windows fatal exception: access violation"*
+when using Chroma, install the latest **Microsoft Visual C++ Redistributable (x64)**
+from Microsoft's official download page, restart the computer, and try again.
+
 ## Running the demo
 
 ```
