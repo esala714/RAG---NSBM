@@ -153,7 +153,7 @@ RETRIEVAL_MODE=hybrid
 * **Sparse:** `tf = 1 + log(count)`, `idf = log((1+N)/(1+df)) + 1`, and the vectors are L2-normalised. The cosine equals the sum of the `q_i x d_i` products of the shared words.
 * **Fusion:** Reciprocal Rank Fusion with k = 60 uses ranks only, so the two score scales never have to be compared directly.
 
-## Results (155 chunks of up to 180 words from 18 documents, MiniLM, k = 4)
+## Results (155 chunks of up to 180 words from 18 documents, after Member 1's PDF text repairs; MiniLM, k = 4)
 
 ### Retrieval quality
 
@@ -162,10 +162,12 @@ RETRIEVAL_MODE=hybrid
 | Metric | Hybrid (this module) | TF-IDF only (Member 1's baseline) |
 |---|---|---|
 | Hit@4 | 14/14 = 1.000 | 12/14 = 0.857 |
-| MRR | 0.875 | 0.857 |
-| Context Relevance | 0.500 | 0.518 |
+| MRR | 0.881 | 0.857 |
+| Context Relevance | 0.500 | 0.500 |
+| Context Recall | 0.906 | 0.841 |
 
-TF-IDF alone misses q05 (repeat exam fee) and q14 (intake months), where the question and the document use different words. Hybrid search finds both, because the dense side matches meaning.
+* TF-IDF alone misses q05 (repeat exam fee) and q14 (intake months), where the question and the document use different words. Hybrid search finds both, because the dense side matches meaning. q14 is only just found (rank 3, Context Recall 0.33).
+* Context Recall rises from 0.841 to 0.906: more of each answering passage reaches the prompt. The clearest case is q11 (A/L entry requirements): TF-IDF brings back the registration policy (recall 0.40), hybrid search the course registration guideline that holds the passage (recall 1.00).
 
 ### Choosing the agent's `min_score`
 
@@ -176,29 +178,39 @@ TF-IDF alone misses q05 (repeat exam fee) and q14 (intake months), where the que
 | 0.20 | 14 | 1 | 0.550 |
 | 0.25 | 13 | 2 | 0.564 |
 | 0.30 | 13 | 4 | 0.664 |
-| 0.35 (agent default) | 13 | 5 | 0.714 |
-| 0.40 | 12 | 6 | 0.729 |
+| 0.35 (agent default) | 13 | 4 | 0.664 |
+| 0.40 | 13 | 6 | 0.764 |
 | 0.45 | 11 | 8 | 0.793 |
 | 0.50 | 11 | 9 | 0.843 |
-| **0.54 (suggested)** | **11** | **10** | **0.893** |
+| **0.54 (best on these scores)** | **11** | **10** | **0.893** |
 | 0.60 | 7 | 10 | 0.750 |
 
 * **Balanced accuracy** = (share of answerable questions answered + share of unanswerable questions refused) / 2, so both groups count equally. Plain accuracy would favour answering everything, because there are more answerable questions.
-* **Suggested value: 0.54**, the middle of the gap between 0.529 (x05, lecturer salary) and 0.552 (q06, repeat coursework). It refuses all 10 unanswerable questions. Three answerable questions score lower and would be refused: q09 pass mark (0.428), q12 lecturer qualifications (0.373) and q13 poor internet as an extenuating circumstance (0.209).
+* **Best on retrieval scores alone: 0.54**, the middle of the gap between 0.529 (x05, lecturer salary) and 0.552 (q06, repeat coursework). It refuses all 10 unanswerable questions. Three answerable questions score lower and would be refused: q09 pass mark (0.414), q12 lecturer qualifications (0.400) and q13 poor internet as an extenuating circumstance (0.209).
 * **The groups overlap:** the lowest answerable score (0.209) is below the highest unanswerable one (0.529), so no threshold gets every question right.
-* **At the current default (0.35)** the agent answers 13 of 14 answerable questions, but 5 of the 10 unanswerable questions also pass, and Gemini then has to refuse them through the prompt.
+* **At the current default (0.35)** 13 of 14 answerable questions pass, but so do 6 of the 10 unanswerable ones, which Gemini then has to refuse through the prompt.
 
-Before `min_score` is changed:
+### End-to-end check (agent + Gemini)
 
-* **The margin is small (0.012).** q06 and x05 sit just either side of 0.54, so run the script again whenever the chunks change.
-* **The agent uses `min_score` twice:** to decide whether to answer, and to choose which chunks go into the prompt. At 0.54, chunks below 0.54 are left out of the context even for answerable questions.
-* **These scores are only the first check.** The agent also rewrites a weak query up to twice, and Gemini is told to refuse when the context does not hold the answer. The final value should be compared end to end, which needs `GEMINI_API_KEY`:
-  `python -m src.evaluation.evaluate --retriever hybrid --with-agent --min-score 0.54`, and the same with `--min-score 0.35` (refusal accuracy and false refusal rate).
-* 24 questions is a small set.
+The retrieval scores are only the first check, so both thresholds were run through the whole system (`python -m src.evaluation.evaluate --retriever hybrid --with-agent --min-score ...`; results in `logs/evaluation/results_hybrid_agent.json` for 0.54 and `results_hybrid_agent_035.json` for 0.35):
+
+| | `min_score` 0.54 | `min_score` 0.35 (default) |
+|---|---|---|
+| Answerable questions answered | 8 / 14 | 9 / 14 |
+| False refusal rate (answerable questions refused) | 0.429 | 0.357 |
+| Refusal accuracy (3 unanswerable questions refused) | 1.000 | 1.000 |
+| Answer Relevance | 0.571 | 0.643 |
+| Groundedness | 1.000 | 1.000 |
+
+* **Gemini refused all three unanswerable questions at both thresholds**, so the stricter threshold added no safety here, and it refused more answerable questions.
+* **Retrieval scores alone do not predict the agent.** The agent searches with the queries Gemini plans, not the raw question, and puts only chunks scoring at least `min_score` into the prompt. At 0.54, q05 (repeat exam fee) and q06 (repeat coursework) lost their supporting chunks and were refused, although their raw scores were 0.620 and 0.552; at 0.35 both were answered.
+* **Single runs vary by a question or two:** q09 went the other way (answered at 0.54, refused at 0.35), because the planned queries differ from run to run.
+* **q04, q11, q12 and q13 were refused at both thresholds**, although retrieval finds the right document for all four (Hit@4 = 1). Their traces in `logs/traces/` show what the agent searched and kept; that is the next thing to improve.
+* **Recommendation: keep `min_score` at 0.35.** Run the script and this check again whenever the chunks change. The questions are few (14 answerable, 3 unanswerable end to end), so these are indications, not precise rates.
 
 ## Design points for the viva
 
-* **Threshold from data, not a guess:** `min_score` is chosen by balanced accuracy in every gap between the observed scores, and the widest of the best gaps is kept (largest margin), so small changes in the scores are least likely to flip a decision.
+* **Threshold from data, not a guess:** the script finds the best threshold on retrieval scores (balanced accuracy in every gap between the observed scores, widest of the best gaps), and the end-to-end check with the agent decides the value that is used.
 
 * **Team interface:** `HybridRetriever` inherits `BaseRetriever`, so the agent depends on the abstraction, not on Chroma. `FakeRetriever` (for testing the agent) and `HybridRetriever` (the real search) can replace each other without changing the agent.
 * **Abstract base classes:** `BaseEmbedder` and `BaseVectorStore` define what the retriever needs, not how it is done.
