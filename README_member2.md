@@ -26,6 +26,7 @@ question ──► HybridRetriever ──► dense search (Chroma) ───┤
 | `scripts/calibrate_threshold.py` | Asks the evaluation questions through `search()` and suggests `min_score` |
 | `tests/test_retrieval.py` | 20 pytest tests that run offline with a fake embedder, including the agent running on the real retriever |
 | `tests/test_threshold.py` | 6 tests for the threshold choice |
+| `notebooks/member2_retrieval_walkthrough.ipynb` | Colab walkthrough, saved with its outputs: vector maths, TF-IDF, RRF, the `explain()` trace, `search()` and the threshold chart (for the video and the viva) |
 
 ## Interface with the team
 
@@ -94,6 +95,8 @@ retriever.list_categories()  # lets the agent decide to narrow a search
 ```
 
 ## Run in Google Colab
+
+The quickest way is the walkthrough notebook: open `notebooks/member2_retrieval_walkthrough.ipynb` in Colab (File → Upload notebook, or open it from GitHub) and choose Runtime → Run all. It clones the repository, builds the index and runs every step below. The same steps by hand:
 
 ```python
 !pip install -q chromadb pypdf python-docx google-genai python-dotenv
@@ -192,7 +195,7 @@ RETRIEVAL_MODE=hybrid
 
 ### End-to-end check (agent + Gemini)
 
-The retrieval scores are only the first check, so both thresholds were run through the whole system (`python -m src.evaluation.evaluate --retriever hybrid --with-agent --min-score ...`; results in `logs/evaluation/results_hybrid_agent.json` for 0.54 and `results_hybrid_agent_035.json` for 0.35):
+The retrieval scores are only the first check, so both thresholds were run through the whole system on 21 November, before the agent's answer-check retry was added (run it again for the final numbers; `python -m src.evaluation.evaluate --retriever hybrid --with-agent --min-score ...`; results in `logs/evaluation/results_hybrid_agent.json` for 0.54 and `results_hybrid_agent_035.json` for 0.35):
 
 | | `min_score` 0.54 | `min_score` 0.35 (default) |
 |---|---|---|
