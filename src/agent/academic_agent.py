@@ -16,6 +16,7 @@ class AcademicAgent:
     def __init__(self, retriever: BaseRetriever, llm: BaseLLMClient,
                  prompt_builder: PromptBuilder, top_k: int = 4,
                  min_score: float = 0.35, max_retries: int = 2,
+                 answer_retries: int = 1,
                  trace_dir: str = "logs/traces"):
         # Dependency Injection: the agent RECEIVES its tools, it doesn't create them
         self.retriever = retriever
@@ -24,6 +25,7 @@ class AcademicAgent:
         self.top_k = top_k
         self.min_score = min_score
         self.max_retries = max_retries
+        self.answer_retries = answer_retries
         self.trace_dir = Path(trace_dir)
 
     def run(self, question: str) -> RAGResponse:
@@ -59,9 +61,17 @@ class AcademicAgent:
         trace.append(AgentStep("action", "Generated answer with Gemini"))
 
         answerable = self.prompts.NOT_FOUND not in answer
+
+        # 6. OBSERVATION + REASONING: the chunks were similar, but did they hold the answer?
+        if not answerable and self.answer_retries > 0:
+            retry = self._retry_with_new_queries(question, queries, trace)
+            if retry is not None:
+                evidence, answer = retry
+                answerable = self.prompts.NOT_FOUND not in answer
+
         response = RAGResponse(question, answer, evidence, trace, answerable)
 
-        # 6. PERSISTENCE
+        # 7. PERSISTENCE
         return self._persist(response)
 
     # ---------- helper methods ----------
@@ -108,6 +118,38 @@ class AcademicAgent:
                     trace.append(AgentStep("reasoning", "Gemini busy; cannot rewrite the query."))
                     break
         return []
+    
+
+    def _retry_with_new_queries(self, question: str, queries: list[str],
+                                trace: list[AgentStep]):
+        """Similar chunks are not always useful chunks. If Gemini found no answer,
+        rewrite every query once in formal wording, search again and answer again."""
+        trace.append(AgentStep("observation",
+                               "Gemini found no answer in the chunks, although they passed the threshold."))
+        trace.append(AgentStep("reasoning",
+                               "Similar is not the same as useful: rewriting the queries in formal wording."))
+        try:
+            new_queries = [self.llm.generate(self.prompts.build_rewrite_prompt(q)).strip()
+                           for q in queries]
+        except LLMUnavailableError:
+            trace.append(AgentStep("reasoning", "Gemini busy; cannot rewrite the queries."))
+            return None
+        new_queries = [q for q in new_queries if q]
+        trace.append(AgentStep("reasoning", f"New search queries: {new_queries}"))
+
+        evidence = self._gather_evidence(new_queries, trace)
+        if not evidence:
+            return None
+        trace.append(AgentStep("observation",
+                               f"Using {len(evidence)} new chunks, best score {evidence[0].score:.3f}"))
+        try:
+            answer = self.llm.generate(self.prompts.build_answer_prompt(question, evidence)).strip()
+        except LLMUnavailableError as error:
+            trace.append(AgentStep("observation", f"Gemini unavailable: {error}"))
+            return None
+        trace.append(AgentStep("action", "Generated a second answer with Gemini"))
+        return evidence, answer
+    
 
     def _persist(self, response: RAGResponse) -> RAGResponse:
         self.trace_dir.mkdir(parents=True, exist_ok=True)

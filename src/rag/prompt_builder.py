@@ -27,14 +27,17 @@ ANSWER:"""
     def build_planning_prompt(self, question: str) -> str:
         return f"""Break this university academic administration question into 1 to 3 short
 search queries that would find the needed rules in NSBM academic documents
-(exam regulations, attendance rules, registration, repeats, student handbook).
-Return ONLY a JSON list of strings, for example: ["minimum attendance requirement", "exam eligibility"]
+(exam regulations, attendance rules, registration, repeats, fees and payments, student handbook).
+Use the formal wording that official university documents use, for example
+"examination" instead of "exam", and "payment" as well as "fee".
+Return ONLY a JSON list of strings, for example: ["minimum attendance requirement", "examination eligibility"]
 
 QUESTION: {question}"""
 
     def build_rewrite_prompt(self, query: str) -> str:
-        return f"""The search query below found no relevant NSBM academic documents.
-Rewrite it using different, more formal university regulation wording.
+        return f"""The search query below did not find the information needed in the NSBM academic documents.
+Rewrite it using the formal wording of university regulations
+(for example "examination" instead of "exam", "payment" instead of "fee").
 Return ONLY the new query, nothing else.
 
 QUERY: {query}"""
