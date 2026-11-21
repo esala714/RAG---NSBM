@@ -446,7 +446,41 @@ removed first, and fragments shorter than 3 content words are not checked.
   (`min_score`) should therefore be chosen from the dense cosine scores of the `--retriever hybrid`
   run, between the two "top score" values that the report prints.
 
-*Hybrid retrieval and agent answer results: to be added after running the commands below.*
+**Results: full system** (hybrid retrieval with MiniLM and the agent with Gemini, k = 4, run by
+Member 2 on the same 155 chunks; the threshold study is in [`README_member2.md`](README_member2.md))
+
+| Retrieval metric | Hybrid (`--retriever hybrid`) | TF-IDF baseline |
+| --- | --- | --- |
+| Hit@4 | 14 / 14 = 1.000 | 12 / 14 = 0.857 |
+| MRR | 0.881 | 0.857 |
+| Context Relevance | 0.500 | 0.500 |
+| Context Recall | 0.906 | 0.841 |
+
+| Answer metric (`--with-agent`, `min_score` 0.35) | Score |
+| --- | --- |
+| Answerable questions answered | 9 / 14 |
+| Groundedness (Faithfulness) | 1.000 |
+| Answer Relevance | 0.643 |
+| Refusal accuracy (3 unanswerable questions) | 1.000 |
+| False refusal rate | 0.357 |
+
+- Hybrid search finds the right document for all 14 questions, including q05 and q14, which TF-IDF
+  misses because the question and the document use different words. More of each answering passage
+  reaches the prompt (Context Recall 0.841 → 0.906); for q11 it rises from 0.40 to 1.00, because the
+  course registration guideline now comes back.
+- Every checked sentence of every answer was supported by the retrieved chunks (Groundedness 1.000),
+  and the agent refused all three questions the documents cannot answer, so the metrics found no
+  unsupported answer.
+- Answer Relevance (0.643) equals the share of answerable questions answered (9 / 14): every answer
+  given contained all of its expected keywords, and each refusal scores 0.
+- The weakness is false refusals: q04, q09, q11, q12 and q13 were refused although retrieval finds
+  their document (Hit@4 = 1). The loss happens in the agent step, where Gemini plans the search
+  queries and only chunks scoring at least `min_score` reach the prompt, so that step is where the
+  next improvement belongs.
+- Member 2's end-to-end check compared `min_score` 0.35 and 0.54: the stricter value refused more
+  answerable questions without refusing more unanswerable ones, so the agent keeps 0.35. Single runs
+  vary by a question or two, because Gemini's planned queries change between runs, and 14 + 3
+  questions give indications, not precise rates.
 
 **Running it**
 
