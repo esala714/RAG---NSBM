@@ -1,4 +1,5 @@
 import os
+import sys
 from dotenv import load_dotenv
 
 from src.agent.academic_agent import AcademicAgent
@@ -17,8 +18,9 @@ agent = AcademicAgent(
     prompt_builder=PromptBuilder(),
 )
 
-question = ("What attendance do I need to sit an exam, "
-            "and on what grounds can I appeal my exam results?")
+DEFAULT_QUESTION = ("What attendance do I need to sit an exam, "
+                    "and on what grounds can I appeal my exam results?")
+question = " ".join(sys.argv[1:]) or DEFAULT_QUESTION
 result = agent.run(question)
 
 print("\n=== AGENT TRACE ===")
