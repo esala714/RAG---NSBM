@@ -461,12 +461,16 @@ answering chunk and q13 scores only 0.245, yet the agent answers all four correc
 plans several formal-wording queries and retries.
 
 **Known limitations**
-- **Names** (e.g. a lecturer's name) get very low dense scores, so a search can be rejected even
-  when TF-IDF finds the right chunk (q12).
+- **Names** get low dense scores: the bare name "Gayan Perera" scores 0.27 (the full q12 question
+  scores 0.400 in Member 2's calibration), so a search can be rejected even when TF-IDF finds the
+  right chunk. q12 is the only answerable question the agent refuses.
 - **Answers can be general** when the key detail is elsewhere (q11 misses "3 simple passes").
 - **More context, longer answers:** up to 8 chunks can bring in related but unasked facts (still cited).
-- **Future work:** a hybrid (dense + sparse) confidence score for accepting a search, tool routing
-  for name lookups, and a re-ranker.
+- **Future work:** a hybrid (dense + sparse) confidence score for accepting a search. `search()`
+  already returns `sparse_cosine` and `sparse_rank` in `chunk.extra`, so no retrieval change is
+  needed; the hard part is a second threshold, because TF-IDF scores alone do not separate
+  unanswerable questions (the parking question scores above some answerable ones). Also: tool
+  routing for name lookups, and a re-ranker.
 
 ---
 
