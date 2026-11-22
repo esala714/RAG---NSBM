@@ -561,43 +561,76 @@ and the chatbot text removed)
   (`min_score`) should therefore be chosen from the dense cosine scores of the `--retriever hybrid`
   run, between the two "top score" values that the report prints.
 
-**Results: full system** (hybrid retrieval with MiniLM and the agent with Gemini, k = 4, run by
-Member 2 on the 155 chunks from before the title-page change and the chatbot-text removal, so its
-TF-IDF column is that version's; they will be run again on the 148 chunks;
-the threshold study is in [`README_member2.md`](README_member2.md))
+**Results: full system** (hybrid retrieval with MiniLM and the agent with Gemini
+`gemini-3.5-flash-lite`, k = 4, the 148 chunks, the agent with its query planning and answer-check
+retry, run on 22 November 2026; the threshold study is in [`README_member2.md`](README_member2.md))
 
 | Retrieval metric | Hybrid (`--retriever hybrid`) | TF-IDF baseline |
 | --- | --- | --- |
-| Hit@4 | 14 / 14 = 1.000 | 12 / 14 = 0.857 |
-| MRR | 0.881 | 0.857 |
-| Context Relevance | 0.500 | 0.500 |
-| Context Recall | 0.906 | 0.841 |
+| Hit@4 | 13 / 14 = 0.929 | 12 / 14 = 0.857 |
+| MRR | 0.857 | 0.821 |
+| Chunk Hit@4 | 10 / 14 = 0.714 | 11 / 14 = 0.786 |
+| Chunk MRR | 0.554 | 0.607 |
+| Context Relevance | 0.500 | 0.482 |
+| Context Recall | 0.857 | 0.857 |
+| Top score: lowest answerable / highest unanswerable | 0.245 / 0.371 | 0.138 / 0.191 |
 
-| Answer metric (`--with-agent`, `min_score` 0.35) | Score |
-| --- | --- |
-| Answerable questions answered | 9 / 14 |
-| Groundedness (Faithfulness) | 1.000 |
-| Answer Relevance | 0.643 |
-| Refusal accuracy (3 unanswerable questions) | 1.000 |
-| False refusal rate | 0.357 |
+The agent was run twice at each threshold on the same index and code: run A by Member 1
+(`--requests-per-minute 12`) and run B by Member 2 (details in `README_member2.md`).
 
-- Hybrid search finds the right document for all 14 questions, including q05 and q14, which TF-IDF
-  misses because the question and the document use different words. More of each answering passage
-  reaches the prompt (Context Recall 0.841 → 0.906); for q11 it rises from 0.40 to 1.00, because the
-  course registration guideline now comes back.
-- Every checked sentence of every answer was supported by the retrieved chunks (Groundedness 1.000),
-  and the agent refused all three questions the documents cannot answer, so the metrics found no
-  unsupported answer.
-- Answer Relevance (0.643) equals the share of answerable questions answered (9 / 14): every answer
-  given contained all of its expected keywords, and each refusal scores 0.
-- The weakness is false refusals: q04, q09, q11, q12 and q13 were refused although retrieval finds
-  their document (Hit@4 = 1). The loss happens in the agent step, where Gemini plans the search
-  queries and only chunks scoring at least `min_score` reach the prompt, so that step is where the
-  next improvement belongs.
-- Member 2's end-to-end check compared `min_score` 0.35 and 0.54: the stricter value refused more
-  answerable questions without refusing more unanswerable ones, so the agent keeps 0.35. Single runs
-  vary by a question or two, because Gemini's planned queries change between runs, and 14 + 3
-  questions give indications, not precise rates.
+| Answer metric (`--with-agent`) | 0.35, run A | 0.35, run B | 0.54, run A | 0.54, run B | Earlier run (155 chunks, 0.35, before the agent's query planning) |
+| --- | --- | --- | --- | --- | --- |
+| Answerable questions answered | 14 / 14 | 13 / 14 | 13 / 14 | 13 / 14 | 9 / 14 |
+| Groundedness (Faithfulness) | 1.000 | 1.000 | 1.000 | 0.987 | 1.000 |
+| Answer Relevance | 1.000 | 0.929 | 0.929 | 0.929 | 0.643 |
+| Refusal accuracy (3 unanswerable questions) | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| False refusal rate | 0.000 | 0.071 | 0.071 | 0.071 | 0.357 |
+
+- In all four runs the agent refused the 3 unanswerable questions, answered 13 or 14 of the 14
+  answerable ones, and backed its answers with the retrieved chunks (one sentence fell below the
+  60% support line in one run). q13 is now answered correctly ("poor internet connectivity will
+  not be approved").
+- The only question that changes between runs is q12 (a lecturer's qualifications): answered once,
+  refused three times. A name carries little meaning for MiniLM (best dense score 0.400), so whether
+  one of Gemini's planned queries reaches `min_score` varies from run to run.
+- Compared with the earlier run, the false refusals of q04, q09, q11 and q13 are gone in every run.
+  Three things changed between the runs: the title headings and the chatbot-text removal (Member 1)
+  and the agent's query planning in document wording with an answer-check retry (Member 3). The
+  answer metrics cannot separate their effects; the retrieval comparison below shows what the
+  chunking changes did.
+- 0.35 and 0.54 give almost the same decisions, so the agent keeps 0.35, which leaves more room for
+  answerable questions whose queries score lower. The top scores still overlap (lowest answerable
+  0.245 for q13, highest unanswerable 0.371 for u02), so the threshold alone cannot separate the two
+  groups: the refusals of u01–u03 come from Gemini finding no answer in the chunks.
+- Hybrid search finds the right document for 13 of 14 questions, but the chunk with the answer for
+  only 10: for q06, q07 and q12 the top 4 hold the right document without the answering passage, and
+  q14 misses both. The agent still answers q06 and q14, because it searches again with its own
+  queries in document wording, and those searches find the passage.
+- Gemini's planned queries and wording change between runs (q12 above), and 14 + 3 questions give
+  indications, not precise rates. Groundedness and Answer Relevance compare words, not meaning.
+
+**What the chunking changes did to hybrid retrieval** (same questions, index rebuilt from each
+version of `chunks.jsonl`)
+
+| Hybrid, k = 4 | 155 chunks (before PR #17) | 152 chunks (title headings) | 148 chunks (+ chatbot text removed) |
+| --- | --- | --- | --- |
+| Hit@4 | 14 / 14 | 14 / 14 | 13 / 14 |
+| MRR | 0.881 | 0.881 | 0.857 |
+| Chunk Hit@4 | 11 / 14 | 11 / 14 | 10 / 14 |
+| Chunk MRR | 0.524 | 0.571 | 0.554 |
+| Context Recall | 0.906 | 0.906 | 0.857 |
+| Rank of q13's answering chunk | 3 | 1 | 1 |
+| Top score: lowest answerable / highest unanswerable | 0.209 / 0.409 | 0.245 / 0.409 | 0.245 / 0.371 |
+
+- The title headings changed only what they were meant to: q13's answering chunk moved from rank 3
+  to 1 (its title page had been first), Chunk MRR rose from 0.524 to 0.571, and every other
+  question kept its result.
+- Removing the chatbot text lowered the best score of an unanswerable question (0.409 → 0.371), but
+  it also pushed two answering chunks just below the top 4: q06's from rank 4 and q14's from rank 3.
+  The chatbot-written chunks became shorter without their offers, so they now match general words
+  such as "students" and "undergraduate" a little better (q06's answering chunk keeps its TF-IDF
+  rank 4; an Assessment Guideline chunk moved above it). Both questions are still answered by the
+  agent.
 
 **Running it**
 
