@@ -461,16 +461,18 @@ answering chunk and q13 scores only 0.245, yet the agent answers all four correc
 plans several formal-wording queries and retries.
 
 **Known limitations**
-- **Names** get low dense scores: the bare name "Gayan Perera" scores 0.27 (the full q12 question
-  scores 0.400 in Member 2's calibration), so a search can be rejected even when TF-IDF finds the
-  right chunk. q12 is the only answerable question the agent refuses.
+- **Names:** for q12, both searches pass the threshold (0.400 and 0.451), but the chunk with the
+  answer (lecturer list, page 1) is not in the top 4: page 2 and student handbook chunks rank
+  higher, because names carry almost no meaning for the dense model (the bare name "Gayan Perera"
+  scores 0.27). Gemini therefore correctly replies "not found". q12 is the only answerable
+  question the agent refuses.
 - **Answers can be general** when the key detail is elsewhere (q11 misses "3 simple passes").
 - **More context, longer answers:** up to 8 chunks can bring in related but unasked facts (still cited).
-- **Future work:** a hybrid (dense + sparse) confidence score for accepting a search. `search()`
-  already returns `sparse_cosine` and `sparse_rank` in `chunk.extra`, so no retrieval change is
-  needed; the hard part is a second threshold, because TF-IDF scores alone do not separate
-  unanswerable questions (the parking question scores above some answerable ones). Also: tool
-  routing for name lookups, and a re-ranker.
+- **Future work:** tool routing that sends name lookups to keyword (TF-IDF) search, a re-ranker,
+  or a larger `top_k` on the retry, so the answering chunk reaches the prompt. A hybrid
+  (dense + sparse) confidence score would help bare-name searches that fail the threshold;
+  `search()` already returns `sparse_cosine` and `sparse_rank`, so the hard part is calibrating a
+  second threshold, because TF-IDF scores alone do not separate unanswerable questions.
 
 ---
 
