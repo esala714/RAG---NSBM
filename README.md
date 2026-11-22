@@ -579,24 +579,27 @@ retry, run on 22 November 2026; the threshold study is in [`README_member2.md`](
 | Context Recall | 0.857 | 0.857 |
 | Top score: lowest answerable / highest unanswerable | 0.245 / 0.371 | 0.138 / 0.191 |
 
-The agent was run twice at each threshold on the same index and code: run A by Member 1
-(`--requests-per-minute 12`) and run B by Member 2 (details in `README_member2.md`).
+The agent was run five times on the same index and code: by Member 1 (run A,
+`--requests-per-minute 12`), Member 2 (run B, details in `README_member2.md`) and Member 3 (run C).
 
-| Answer metric (`--with-agent`) | 0.35, run A | 0.35, run B | 0.54, run A | 0.54, run B | Earlier run (155 chunks, 0.35, before the agent's query planning) |
-| --- | --- | --- | --- | --- | --- |
-| Answerable questions answered | 14 / 14 | 13 / 14 | 13 / 14 | 13 / 14 | 9 / 14 |
-| Groundedness (Faithfulness) | 1.000 | 1.000 | 1.000 | 0.987 | 1.000 |
-| Answer Relevance | 1.000 | 0.929 | 0.929 | 0.929 | 0.643 |
-| Refusal accuracy (3 unanswerable questions) | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
-| False refusal rate | 0.000 | 0.071 | 0.071 | 0.071 | 0.357 |
+| Run (`--with-agent`) | `min_score` | Answerable answered | Groundedness (Faithfulness) | Answer Relevance | Refusal accuracy (3 unanswerable) | False refusal rate | Not fully answered |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A (Member 1) | 0.35 | 14 / 14 | 1.000 | 1.000 | 1.000 | 0.000 | none |
+| B (Member 2) | 0.35 | 13 / 14 | 1.000 | 0.929 | 1.000 | 0.071 | q12 refused |
+| C (Member 3) | 0.35 | 13 / 14 | 1.000 | 0.893 | 1.000 | 0.071 | q12 refused, q11 partly |
+| A (Member 1) | 0.54 | 13 / 14 | 1.000 | 0.929 | 1.000 | 0.071 | q12 refused |
+| B (Member 2) | 0.54 | 13 / 14 | 0.987 | 0.929 | 1.000 | 0.071 | q12 refused |
+| Earlier run (155 chunks, before the agent's query planning) | 0.35 | 9 / 14 | 1.000 | 0.643 | 1.000 | 0.357 | q04, q09, q11, q12, q13 refused |
 
-- In all four runs the agent refused the 3 unanswerable questions, answered 13 or 14 of the 14
-  answerable ones, and backed its answers with the retrieved chunks (one sentence fell below the
-  60% support line in one run). q13 is now answered correctly ("poor internet connectivity will
-  not be approved").
-- The only question that changes between runs is q12 (a lecturer's qualifications): answered once,
-  refused three times. A name carries little meaning for MiniLM (best dense score 0.400), so whether
-  one of Gemini's planned queries reaches `min_score` varies from run to run.
+- In all five runs the agent refused the 3 unanswerable questions, including u01 (canteen, 0.353)
+  and u02 (cricket, 0.371), whose searches pass `min_score`: the prompt rule makes Gemini reply
+  "not found". It answered 13 or 14 of the 14 answerable questions and backed its answers with the
+  retrieved chunks (one sentence fell below the 60% support line in one run). q13 is now answered
+  correctly ("poor internet connectivity will not be approved").
+- Only two questions change between runs. q12 (a lecturer's qualifications) was answered once and
+  refused four times: a name carries little meaning for MiniLM (best dense score 0.400), so whether
+  one of Gemini's planned queries reaches `min_score` varies. q11 (A/L entry requirements) was
+  answered every time, but once without "3 simple passes" (Answer Relevance 0.5).
 - Compared with the earlier run, the false refusals of q04, q09, q11 and q13 are gone in every run.
   Three things changed between the runs: the title headings and the chatbot-text removal (Member 1)
   and the agent's query planning in document wording with an answer-check retry (Member 3). The
@@ -606,12 +609,13 @@ The agent was run twice at each threshold on the same index and code: run A by M
   answerable questions whose queries score lower. The top scores still overlap (lowest answerable
   0.245 for q13, highest unanswerable 0.371 for u02), so the threshold alone cannot separate the two
   groups: the refusals of u01–u03 come from Gemini finding no answer in the chunks.
-- Hybrid search finds the right document for 13 of 14 questions, but the chunk with the answer for
-  only 10: for q06, q07 and q12 the top 4 hold the right document without the answering passage, and
-  q14 misses both. The agent still answers q06 and q14, because it searches again with its own
-  queries in document wording, and those searches find the passage.
-- Gemini's planned queries and wording change between runs (q12 above), and 14 + 3 questions give
-  indications, not precise rates. Groundedness and Answer Relevance compare words, not meaning.
+- **The agent loop does better than one search.** Hybrid search finds the right document for 13 of
+  14 questions, but the chunk with the answer for only 10: for q06, q07 and q12 the top 4 hold the
+  right document without the answering passage, q14 misses both, and q13's best score (0.245) is
+  below `min_score`. Yet the agent answered q06, q07, q13 and q14 correctly in all five runs, because
+  it plans several queries in the documents' formal wording and searches again when one is weak.
+- Gemini's planned queries and wording change between runs (q11 and q12 above), and 14 + 3 questions
+  give indications, not precise rates. Groundedness and Answer Relevance compare words, not meaning.
 
 **What the chunking changes did to hybrid retrieval** (same questions, index rebuilt from each
 version of `chunks.jsonl`)
