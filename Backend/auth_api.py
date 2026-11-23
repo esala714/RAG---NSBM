@@ -1,12 +1,12 @@
 """
-Sign-in API for the NSBM Admin AI portal (FastAPI).
+Backend API for the NSBM Admin AI portal (FastAPI): sign-in and the AI chat.
 
-Start it from the project folder:
-    python3 -m uvicorn auth_api:app --reload --port 8001 --app-dir Backend
-or from inside the Backend folder:
-    python3 -m uvicorn auth_api:app --reload --port 8001
+Start it from the project folder, with the Python 3.11+ venv active:
+    python -m uvicorn auth_api:app --reload --port 8001 --app-dir Backend
 
 Sign-in has two steps: email + password, then a 6-digit code sent by email.
+The chat (POST /api/chat) sends a signed-in user's question to the team's
+AcademicAgent (src/agent) through chat_service.py.
 
 Endpoints
     POST /api/auth/register      {"full_name", "email", "password"}  -> emails a code
@@ -17,23 +17,20 @@ Endpoints
     PUT  /api/auth/profile       {"full_name"}      -> changes the name
     POST /api/auth/logout        (Bearer token)     -> 204
     GET  /api/admin/users        (admin token only) -> every account
-    GET  /api/health                                 -> {"status": "ok", ...}
+    POST /api/chat               {"question"}  (Bearer token)
+                                 -> {"answer", "answerable", "sources", "trace", ...}
+    GET  /api/health                                 -> {"status": "ok", "chat": {...}, ...}
 
 Errors always look like {"detail": "message for the user", "code": "invalid_credentials"}.
 
-Protecting your RAG endpoint later:
-    from auth_api import get_current_user, require_admin
-
-    @app.post("/api/chat")
-    def chat(body: ChatIn, user: dict = Depends(get_current_user)):
-        ...   # user["email"], user["role"]
-
-    @app.post("/api/admin/reindex")
-    def reindex(user: dict = Depends(require_admin)):
-        ...   # only admins get here
+Any endpoint can require a signed-in user or an admin:
+    def chat(body: ChatIn, user: dict = Depends(get_current_user)): ...
+    def reindex(user: dict = Depends(require_admin)): ...   # only admins get here
 """
 
 import sys
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -47,11 +44,22 @@ from fastapi.responses import JSONResponse, Response  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 from auth_service import AuthError, AuthService, Settings  # noqa: E402
+import chat_service  # noqa: E402
+from chat_service import ChatError  # noqa: E402
 
-settings = Settings.from_env()
+settings = Settings.from_env()   # also reads .env (GEMINI_API_KEY, SMTP_..., ...)
 auth = AuthService(settings)
 
-app = FastAPI(title="NSBM Admin AI - Sign-in API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Load the AI agent in the background, so the server starts at once
+    # and the first question doesn't wait for the search model.
+    threading.Thread(target=chat_service.warm_up, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="NSBM Admin AI - API", lifespan=lifespan)
 
 # The UI is opened from VS Code (Go Live at http://127.0.0.1:5500, or F5 as a file),
 # so the API has to accept requests from another origin.
@@ -73,6 +81,11 @@ async def handle_auth_error(request: Request, exc: AuthError) -> JSONResponse:
         body["field"] = exc.field
     headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after else None
     return JSONResponse(status_code=exc.status, content=body, headers=headers)
+
+
+@app.exception_handler(ChatError)
+async def handle_chat_error(request: Request, exc: ChatError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status, content={"detail": exc.message, "code": exc.code})
 
 
 @app.exception_handler(RequestValidationError)
@@ -107,6 +120,10 @@ class VerifyIn(BaseModel):
 
 class ProfileIn(BaseModel):
     full_name: str
+
+
+class ChatIn(BaseModel):
+    question: str
 
 
 # ----------------------------------------------------------- who is this? -- #
@@ -180,10 +197,18 @@ def admin_users(admin: dict = Depends(require_admin)) -> dict:
     }
 
 
+@app.post("/api/chat")
+def chat(body: ChatIn, user: dict = Depends(get_current_user)) -> dict:
+    """Answer a signed-in user's question with the AcademicAgent (RAG over the NSBM documents)."""
+    print(f"[chat] {user['email']} ({user['role']}) asked: {body.question[:80]!r}", flush=True)
+    return chat_service.answer(body.question)
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {
         "status": "ok",
         "email_mode": "smtp" if settings.sends_real_email else "terminal (SMTP_HOST not set)",
         "admin_emails_set": bool(settings.admin_emails),
+        "chat": chat_service.status(),
     }

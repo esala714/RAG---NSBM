@@ -191,6 +191,25 @@
         .input-area button:hover {
             background-color: var(--primary);
         }
+
+        .input-area button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Answers from the AI agent */
+        .message.bot p { margin: 0 0 8px; }
+        .message.bot p:last-of-type { margin-bottom: 0; }
+        .message.bot ul { margin: 4px 0 8px; padding-left: 20px; }
+        .message.bot.pending { opacity: 0.75; font-style: italic; }
+        .message.bot.error { border-left-color: #C0392B; }
+        .source-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+        .source-list .source-tag { margin-top: 0; cursor: help; }
+        .agent-trace { margin-top: 10px; font-size: 0.8rem; }
+        .agent-trace summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+        .agent-trace ol { margin: 6px 0; padding-left: 20px; }
+        .agent-trace li { margin-bottom: 4px; overflow-wrap: anywhere; }
+        .agent-trace .trace-heading { margin-top: 8px; font-weight: 600; }
     </style>
 </head>
 <body>
@@ -246,7 +265,6 @@
         <div class="chat-container" id="chatContainer">
             <div class="message bot">
                 Welcome to NSBM Green University's Administrative Assistant! I can help you with semester payments, examination guidelines, lecturer recruitment criteria, and course outlines. How can I assist you today?
-                <br><span class="source-tag">Source: NSBM General Handbook</span>
             </div>
         </div>
 
@@ -330,30 +348,152 @@
             sendQuery();
         }
 
-        function sendQuery() {
-            const input = document.getElementById('queryInput');
+        // ---------------- Chat: questions go to the AI agent ----------------
+        // Backend: POST /api/chat in Backend/auth_api.py -> Backend/chat_service.py -> AcademicAgent
+        let chatBusy = false;
+
+        function addMessage(kind, text) {
             const container = document.getElementById('chatContainer');
-            const query = input.value.trim();
-
-            if (!query) return;
-
-            // Append User Message
-            const userMsg = document.createElement('div');
-            userMsg.className = 'message user';
-            userMsg.textContent = query;
-            container.appendChild(userMsg);
-
-            input.value = '';
+            const msg = document.createElement('div');
+            msg.className = 'message ' + kind;
+            if (text) msg.textContent = text;
+            container.appendChild(msg);
             container.scrollTop = container.scrollHeight;
+            return msg;
+        }
 
-            // Simulated RAG Response (Will connect to FastAPI backend)
-            setTimeout(() => {
-                const botMsg = document.createElement('div');
-                botMsg.className = 'message bot';
-                botMsg.innerHTML = `Query received regarding: "<strong>${query}</strong>". Searching NSBM RAG Knowledge Base...<br><span class="source-tag">Source: NSBM University Database</span>`;
-                container.appendChild(botMsg);
+        // Adds text with **bold** parts. Text is never treated as HTML.
+        function appendInline(el, text) {
+            text.split(/(\*\*[^*]+\*\*)/).forEach(part => {
+                if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) {
+                    const b = document.createElement('strong');
+                    b.textContent = part.slice(2, -2);
+                    el.appendChild(b);
+                } else if (part) {
+                    el.appendChild(document.createTextNode(part));
+                }
+            });
+        }
+
+        // Shows the answer: paragraphs, bullet lists, headings and **bold**.
+        function renderAnswer(target, text) {
+            let list = null;
+            for (const raw of text.split('\n')) {
+                const line = raw.trim();
+                const bullet = line.match(/^[-*•]\s+(.*)$/);
+                const heading = line.match(/^#{1,6}\s+(.*)$/);
+                if (bullet) {
+                    if (!list) { list = document.createElement('ul'); target.appendChild(list); }
+                    const li = document.createElement('li');
+                    appendInline(li, bullet[1]);
+                    list.appendChild(li);
+                    continue;
+                }
+                list = null;
+                if (!line) continue;
+                const p = document.createElement('p');
+                appendInline(p, heading ? '**' + heading[1].replace(/\*\*/g, '') + '**' : line);
+                target.appendChild(p);
+            }
+        }
+
+        // One tag per document the answer cites, e.g. "[1] NSBM attendance policy.pdf · p.2".
+        function showSources(msg, result) {
+            if (!result.answerable || !result.sources.length) return;
+            const cited = new Set();
+            for (const m of result.answer.matchAll(/\[([\d,\s]+)\]/g)) {
+                m[1].split(',').forEach(n => cited.add(Number(n.trim())));
+            }
+            const used = result.sources.filter(s => cited.has(s.number));
+            const row = document.createElement('div');
+            row.className = 'source-list';
+            for (const s of (used.length ? used : result.sources)) {
+                const tag = document.createElement('span');
+                tag.className = 'source-tag';
+                tag.textContent = '[' + s.number + '] ' + s.source + (s.page != null ? ' · p.' + s.page : '');
+                tag.title = s.excerpt;   // hover to read the text the answer is based on
+                row.appendChild(tag);
+            }
+            msg.appendChild(row);
+        }
+
+        // "How I found this": the agent's steps and the chunks it read (explainability).
+        function showTrace(msg, result) {
+            if (!result.trace || !result.trace.length) return;
+            const details = document.createElement('details');
+            details.className = 'agent-trace';
+            const summary = document.createElement('summary');
+            summary.textContent = 'How I found this (' + result.trace.length + ' steps, ' + result.seconds + ' s)';
+            details.appendChild(summary);
+
+            const steps = document.createElement('ol');
+            for (const step of result.trace) {
+                const li = document.createElement('li');
+                const phase = document.createElement('strong');
+                phase.textContent = step.phase + ': ';
+                li.append(phase, step.detail);
+                steps.appendChild(li);
+            }
+            details.appendChild(steps);
+
+            if (result.sources.length) {
+                const heading = document.createElement('div');
+                heading.className = 'trace-heading';
+                heading.textContent = 'Chunks the agent read';
+                const chunks = document.createElement('ol');
+                for (const s of result.sources) {
+                    const li = document.createElement('li');
+                    li.value = s.number;
+                    const name = document.createElement('strong');
+                    name.textContent = s.source + (s.page != null ? ' p.' + s.page : '') + ' (score ' + s.score + '): ';
+                    li.append(name, s.excerpt);
+                    chunks.appendChild(li);
+                }
+                details.append(heading, chunks);
+            }
+            msg.appendChild(details);
+        }
+
+        function setChatBusy(on) {
+            chatBusy = on;
+            document.querySelector('.input-area button').disabled = on;
+        }
+
+        async function sendQuery() {
+            const input = document.getElementById('queryInput');
+            const question = input.value.trim();
+            if (!question || chatBusy) return;
+
+            if (!getToken()) {
+                addMessage('bot', 'Please log in to ask a question. Your question is still in the box.');
+                openLoginModal();
+                return;
+            }
+
+            addMessage('user', question);
+            input.value = '';
+            setChatBusy(true);
+            const reply = addMessage('bot pending', 'Searching the NSBM documents…');
+            try {
+                const result = await authFetch('/chat', { method: 'POST', body: JSON.stringify({ question }) });
+                reply.className = 'message bot';
+                reply.textContent = '';
+                renderAnswer(reply, result.answer);
+                showSources(reply, result);
+                showTrace(reply, result);
+            } catch (err) {
+                reply.className = 'message bot error';
+                reply.textContent = err.detail;
+                if (err.status === 401) {       // the session ended: sign in again
+                    input.value = question;
+                    await logout();
+                    openLoginModal();
+                }
+            } finally {
+                setChatBusy(false);
+                const container = document.getElementById('chatContainer');
                 container.scrollTop = container.scrollHeight;
-            }, 600);
+            }
         }
 
         // ---------------- Sign-in (email + password, then a 6-digit code from the email) ----------------
@@ -385,7 +525,7 @@
             try {
                 res = await fetch(AUTH_API + path, { ...options, headers });
             } catch (e) {
-                throw { detail: "Can't reach the sign-in server. Make sure FastAPI is running on port 8001." };
+                throw { detail: "Can't reach the server. Make sure FastAPI is running on port 8001." };
             }
             const data = res.status === 204 ? {} : await res.json().catch(() => ({}));
             if (!res.ok) {
