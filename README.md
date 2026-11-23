@@ -745,7 +745,7 @@ The portal has a two-step login and two kinds of account.
    ALLOWED_EMAIL_DOMAINS=students.nsbm.ac.lk,nsbm.ac.lk
    ```
 
-   - `SMTP_PASSWORD` must be a Gmail **App Password**, not the normal Google password. Turn on 2-Step Verification, then create one at <https://myaccount.google.com/apppasswords>.
+   - `SMTP_PASSWORD` must be a Gmail **your-16-letter-gmail-app-password**, not the normal Google password. Turn on 2-Step Verification, then create one at <https://myaccount.google.com/apppasswords>.
    - While developing you can leave `SMTP_HOST` empty: no email is sent and the code is printed in the terminal instead.
    - `ALLOWED_EMAIL_DOMAINS` limits sign-up to NSBM addresses. Emails in `ADMIN_EMAILS` are always allowed. Leave it empty to allow any email.
 
