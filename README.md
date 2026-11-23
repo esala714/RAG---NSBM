@@ -16,7 +16,7 @@ Built for **DS205.3 – Data Science with Python** (NSBM Green University).
 | Member 1 | Document processing: PDF extraction, cleaning, chunking, metadata | `src/ingestion/` |
 | Member 2 | Embeddings and vector database (Chroma), similarity search | `src/retrieval/` |
 | Member 3 | Agentic RAG pipeline: planning, retrieval loop, grounded answers, traces | `src/core/`, `src/rag/`, `src/agent/` |
-| Member 4 | Streamlit user interface and integration | `Frontend/` |
+| Member 4 | Web user interface, login, and integration with the agent | `Frontend/`, `Backend/` |
 
 ---
 
@@ -40,7 +40,7 @@ Agent (Member 3)
               no  → REASON: rewrite all queries, search and answer once more
    PERSIST  → save the full trace as JSON
    ▼
-Streamlit app (Member 4) shows the answer, sources, pages and scores
+Web chat (Member 4) shows the answer, sources, pages, scores and the agent's steps
 ```
 
 ---
@@ -49,7 +49,8 @@ Streamlit app (Member 4) shows the answer, sources, pages and scores
 
 ```
 RAG---NSBM/
-  Frontend/              Streamlit user interface
+  Frontend/              Web user interface (UI.html)
+  Backend/               FastAPI server: login and the AI chat endpoint
   data/
     raw/                 The 18 NSBM source documents (PDF), one folder per topic
     processed/           chunks.jsonl: Member 1's output, Member 2's input
@@ -481,7 +482,9 @@ plans several formal-wording queries and retries.
 
 ## User interface (Member 4)
 
-*To be completed by Member 4: how to run the Streamlit app and what it shows.*
+The user interface is a web page (`Frontend/UI.html`) with a FastAPI backend (`Backend/`).
+Signed-in users chat with the agent and see its sources and steps.
+See **User interface, login and AI chat** below.
 
 ---
 
@@ -677,7 +680,7 @@ chunk, every answer sentence and its support score) as JSON in `logs/evaluation/
   lower, and a sentence can reuse words from the context and still be wrong.
 - 17 questions is a small dataset, although it covers every document category.
 
-## User interface and login
+## User interface, login and AI chat
 
 User interface, login and integration: **Esala Kumarapperuma**
 
@@ -691,7 +694,7 @@ The portal is a single web page in plain HTML, CSS and JavaScript, with no build
 | **Most Asked FAQs** | One-click questions: Payment Deadlines, Exam Repetition Policy, Lecturer Qualifications. Clicking one sends it to the chat |
 | **Support desk** | NSBM hotline +94 11 544 5000 and inquiries@nsbm.ac.lk |
 | **Header** | NSBM Administrative Knowledge Base, a badge showing the account type (*Student / Faculty Portal* or *Admin Portal*) and the **Login** button. When signed in, the button shows your name; click it to sign out |
-| **Chat** | Welcome message, your questions on the right and the assistant's answers on the left, each answer with a **Source** tag |
+| **Chat** | Your questions on the right and the agent's answers on the left, each with source tags (file and page) and **How I found this** (the agent's steps). Shown after logging in |
 | **Question box** | Type a question and press **Send** or Enter |
 | **Login popup** | Sign in, create an account and enter the emailed code (see below) |
 
@@ -707,7 +710,71 @@ The portal is a single web page in plain HTML, CSS and JavaScript, with no build
 
 **Open the UI:** in VS Code press **F5**, or right-click `Frontend/UI.html` and choose **Open with Live Server**. The login needs the backend running (see Setup below).
 
-**Current status:** the chat shows a placeholder answer ("Searching NSBM RAG Knowledge Base…"). The next step is connecting it to the RAG backend, sending the signed-in user's token with each question (see *Protecting another endpoint* below).
+### AI chat (connected to the agent)
+
+The chat sends each question to the team's `AcademicAgent` (Member 3). The agent searches the
+vector store (Member 2) built from the processed documents (Member 1) and asks Gemini for an
+answer based only on what it found.
+
+```
+Frontend/UI.html ── POST /api/chat (question + login token) ──▶ Backend/auth_api.py
+                                                                  │ checks the user is signed in
+                                                                  ▼
+                                                         Backend/chat_service.py
+                                                                  │ builds the agent once, like run_demo.py
+                                                                  ▼
+                                                         AcademicAgent.run(question)
+Frontend/UI.html ◀── answer, sources, trace (JSON) ───────────────┘
+```
+
+**What an answer shows**
+
+- The answer with its citations, such as [1] and [2]. Bold text and bullet lists are kept.
+- A tag for each cited source: file name and page. Hover over a tag to read the text the answer used.
+- **How I found this:** every Observation, Reasoning, Action and Persistence step, and the chunks
+  the agent read with their scores. The same trace is saved in `logs/traces/`.
+- While the agent works, a live message with a timer, so a slow answer never looks frozen.
+
+**Rules**
+
+- Only signed-in users (users and admins) can ask. Questions can be up to 1,000 characters.
+- One question is answered at a time, to stay within Gemini's free-plan limits.
+- If Gemini says "too many requests", the chat waits once (up to 30 seconds), then shows a clear
+  message instead of waiting several minutes. The page itself gives up after 2 minutes.
+
+**Run it**
+
+1. Follow **Setup** at the top: Python 3.11+, a venv, `pip install -r requirements.txt`, and
+   `GEMINI_API_KEY` in `.env`.
+2. Build the document index once: `python scripts/build_index.py --raw data/raw --reset`
+3. Check the agent on its own: `python run_demo.py`
+4. Start the backend from the project folder, with the venv active, and wait for `[chat] AI agent ready.`:
+
+   ```bash
+   python -m uvicorn auth_api:app --reload --port 8001 --app-dir Backend
+   ```
+
+5. Open `Frontend/UI.html`, log in and ask a question.
+
+<http://127.0.0.1:8001/api/health> shows what the chat still needs:
+`"chat": {"agent_ready", "python_ok", "gemini_key_set", "vector_db_found"}`.
+
+| File | What it does |
+| --- | --- |
+| `Backend/chat_service.py` | Builds the agent once and turns its answer, sources and trace into JSON |
+| `Backend/auth_api.py` | `POST /api/chat`: checks the login token, then asks `chat_service.py` |
+| `Frontend/UI.html` | Sends the question with the login token and shows the answer, sources and steps |
+| `tests/test_chat_service.py` | 16 tests with a fake retriever and fake LLM (no Gemini key or vector database needed) |
+
+| Message in the chat | Fix |
+| --- | --- |
+| "The AI agent needs Python 3.11 or newer" | Start the backend from the venv (the terminal line starts with `(venv)`). |
+| "GEMINI_API_KEY is not set" | Add it to `.env`, then restart the backend. |
+| "The document index has not been built yet" or "is empty" | Run `python scripts/build_index.py --raw data/raw --reset`, then restart the backend. |
+| "A package the agent needs is missing" | Run `python -m pip install -r requirements.txt` with the venv active. |
+| "Gemini rejected the API key" | Check `GEMINI_API_KEY` in `.env`, then restart the backend. |
+| "Gemini's free-tier request limit was reached" | Wait a minute and ask again. |
+| "Your session has ended" | Log in again (sessions last 24 hours). |
 
 ### Login: email + password + verification code
 
@@ -741,11 +808,11 @@ The portal has a two-step login and two kinds of account.
    SMTP_HOST=smtp.gmail.com
    SMTP_PORT=587
    SMTP_USERNAME=esalawathsilu@gmail.com
-   SMTP_PASSWORD=enwf ntbm axzi wvtm
+   SMTP_PASSWORD=your-16-letter-gmail-app-password
    ALLOWED_EMAIL_DOMAINS=students.nsbm.ac.lk,nsbm.ac.lk
    ```
 
-   - `SMTP_PASSWORD` must be a Gmail **your-16-letter-gmail-app-password**, not the normal Google password. Turn on 2-Step Verification, then create one at <https://myaccount.google.com/apppasswords>.
+   - `SMTP_PASSWORD` must be a Gmail **App Password**, not the normal Google password. Turn on 2-Step Verification, then create one at <https://myaccount.google.com/apppasswords>.
    - While developing you can leave `SMTP_HOST` empty: no email is sent and the code is printed in the terminal instead.
    - `ALLOWED_EMAIL_DOMAINS` limits sign-up to NSBM addresses. Emails in `ADMIN_EMAILS` are always allowed. Leave it empty to allow any email.
 
@@ -772,16 +839,16 @@ All requests and responses are JSON. Errors look like `{"detail": "message for t
 | `GET /api/auth/me` | Bearer token | The signed-in user |
 | `POST /api/auth/logout` | Bearer token | Ends the session |
 | `GET /api/admin/users` | Admin token | Every account |
+| `POST /api/chat` | `question` + Bearer token | `answer`, `answerable`, `sources`, `trace`, `seconds` |
 | `GET /api/health` | none | Server status |
 
-To protect another endpoint (for example the RAG chat):
+`/api/chat` only accepts signed-in users, through `Depends(get_current_user)`. Another endpoint can be
+limited to admins the same way:
 
 ```python
-from auth_api import get_current_user, require_admin
-
-@app.post("/api/chat")
-def chat(body: ChatIn, user: dict = Depends(get_current_user)):
-    ...   # user["email"], user["role"]
+@app.post("/api/admin/reindex")
+def reindex(admin: dict = Depends(require_admin)):
+    ...   # only admins get here
 ```
 
 #### Security
@@ -795,7 +862,7 @@ def chat(body: ChatIn, user: dict = Depends(get_current_user)):
 
 | Problem | Fix |
 | --- | --- |
-| "Can't reach the sign-in server" | The backend isn't running. Start it (step 3). |
+| "Can't reach the server" | The backend isn't running. Start it (step 3). |
 | `Address already in use` | An old backend is still running: `lsof -ti tcp:8001 \| xargs kill -9`, then start again. |
 | The code appears in the terminal, not by email | `SMTP_HOST` is empty or `.env` isn't read. Run `pip install python-dotenv` and restart the backend. |
 | "We couldn't send the email" | `SMTP_PASSWORD` is not a valid Gmail App Password. |

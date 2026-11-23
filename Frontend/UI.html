@@ -351,6 +351,14 @@
         // ---------------- Chat: questions go to the AI agent ----------------
         // Backend: POST /api/chat in Backend/auth_api.py -> Backend/chat_service.py -> AcademicAgent
         let chatBusy = false;
+        const CHAT_TIMEOUT_SECONDS = 120;   // the backend gives up on a busy Gemini well before this
+
+        // What the waiting message says, so a slow answer never looks frozen.
+        function waitingText(seconds) {
+            if (seconds < 8) return 'Searching the NSBM documents…';
+            if (seconds < 25) return 'Reading the documents and writing the answer… (' + seconds + '\u00a0s)';
+            return 'Still working. Gemini is slow right now (free plan limits), so this can take up to a minute… (' + seconds + '\u00a0s)';
+        }
 
         function addMessage(kind, text) {
             const container = document.getElementById('chatContainer');
@@ -473,15 +481,26 @@
             addMessage('user', question);
             input.value = '';
             setChatBusy(true);
-            const reply = addMessage('bot pending', 'Searching the NSBM documents…');
+            const reply = addMessage('bot pending', waitingText(0));
+            const started = Date.now();
+            const ticker = setInterval(() => {
+                reply.textContent = waitingText(Math.floor((Date.now() - started) / 1000));
+            }, 1000);
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), CHAT_TIMEOUT_SECONDS * 1000);
+            const stopWaiting = () => { clearInterval(ticker); clearTimeout(timeout); };
             try {
-                const result = await authFetch('/chat', { method: 'POST', body: JSON.stringify({ question }) });
+                const result = await authFetch('/chat', {
+                    method: 'POST', body: JSON.stringify({ question }), signal: controller.signal
+                });
+                stopWaiting();
                 reply.className = 'message bot';
                 reply.textContent = '';
                 renderAnswer(reply, result.answer);
                 showSources(reply, result);
                 showTrace(reply, result);
             } catch (err) {
+                stopWaiting();
                 reply.className = 'message bot error';
                 reply.textContent = err.detail;
                 if (err.status === 401) {       // the session ended: sign in again
@@ -490,6 +509,7 @@
                     openLoginModal();
                 }
             } finally {
+                stopWaiting();
                 setChatBusy(false);
                 const container = document.getElementById('chatContainer');
                 container.scrollTop = container.scrollHeight;
@@ -525,6 +545,9 @@
             try {
                 res = await fetch(AUTH_API + path, { ...options, headers });
             } catch (e) {
+                if (e.name === 'AbortError') {
+                    throw { timeout: true, detail: 'No answer after 2 minutes. Gemini may be busy, so please try again in a minute.' };
+                }
                 throw { detail: "Can't reach the server. Make sure FastAPI is running on port 8001." };
             }
             const data = res.status === 204 ? {} : await res.json().catch(() => ({}));

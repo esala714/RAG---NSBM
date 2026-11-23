@@ -31,6 +31,12 @@ MAX_QUESTION_LENGTH = 1000
 EXCERPT_LENGTH = 300
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 
+# When Gemini's free plan says "too many requests", wait once, for at most 30 seconds,
+# then give up with a clear message. (GeminiClient's default, 2 waits of up to 60 s per
+# call, suits run_demo.py, but in the chat a question could then take several minutes.)
+RATE_LIMIT_WAITS = 1
+MAX_RATE_LIMIT_WAIT = 30
+
 
 class ChatError(Exception):
     """A problem the user should see. auth_api.py turns it into a JSON error."""
@@ -106,7 +112,12 @@ def _build_agent() -> Any:
         )
     return AcademicAgent(
         retriever=retriever,
-        llm=GeminiClient(os.getenv("GEMINI_API_KEY"), os.getenv("GEMINI_MODEL") or DEFAULT_MODEL),
+        llm=GeminiClient(
+            os.getenv("GEMINI_API_KEY"),
+            os.getenv("GEMINI_MODEL") or DEFAULT_MODEL,
+            rate_limit_waits=RATE_LIMIT_WAITS,
+            max_rate_limit_wait=MAX_RATE_LIMIT_WAIT,
+        ),
         prompt_builder=PromptBuilder(),
         trace_dir=str(ROOT / "logs" / "traces"),
     )
@@ -192,6 +203,9 @@ def answer(question: Optional[str]) -> dict:
         raise
     except Exception as error:   # noqa: BLE001
         raise _friendly(error) from error
+    seconds = round(time.monotonic() - started, 1)
+    print(f"[chat] Answered in {seconds} s"
+          f"{'' if result.answerable else ' (no answer found, or Gemini was busy)'}", flush=True)
 
     return {
         "question": result.question,
@@ -201,5 +215,5 @@ def answer(question: Optional[str]) -> dict:
         # paths are shown from the project folder ("logs/traces/...") rather than the full disk path
         "trace": [{"phase": step.phase, "detail": str(step.detail).replace(str(ROOT) + os.sep, "")}
                   for step in result.trace],
-        "seconds": round(time.monotonic() - started, 1),
+        "seconds": seconds,
     }

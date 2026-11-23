@@ -6,6 +6,7 @@ No Gemini key or vector database is needed: the agent gets a fake retriever and 
 
 import json
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -156,6 +157,54 @@ def test_other_errors_point_to_the_terminal():
         assert error.value.status == 500 and "terminal" in error.value.message
     finally:
         chat_service.set_agent(None)
+
+
+def test_agent_is_built_like_run_demo_with_short_gemini_waits(monkeypatch, tmp_path):
+    """The chat builds the same agent as run_demo.py, but gives up sooner on Gemini's limits."""
+    import src.rag.llm_client as llm_client
+
+    made = {}
+
+    class SpyGemini(FakeLLM):
+        def __init__(self, api_key, model_name, **options):
+            super().__init__()
+            made.update(api_key=api_key, model=model_name, **options)
+
+    retriever = FakeRetriever()
+    retriever.store = types.SimpleNamespace(count=lambda: 148)
+    fake_retrieval = types.ModuleType("src.retrieval")
+    fake_retrieval.build_retriever = lambda: retriever
+    monkeypatch.setitem(sys.modules, "src.retrieval", fake_retrieval)
+    monkeypatch.setattr(llm_client, "GeminiClient", SpyGemini)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_MODEL", "test-model")
+    (tmp_path / "vector_db").mkdir()
+    monkeypatch.setenv("CHROMA_DIR", str(tmp_path / "vector_db"))
+    chat_service.set_agent(None)
+    try:
+        agent = chat_service.get_agent()
+        assert agent.retriever is retriever
+        assert made == {"api_key": "test-key", "model": "test-model",
+                        "rate_limit_waits": chat_service.RATE_LIMIT_WAITS,
+                        "max_rate_limit_wait": chat_service.MAX_RATE_LIMIT_WAIT}
+        assert chat_service.MAX_RATE_LIMIT_WAIT <= 30
+        assert agent.trace_dir == ROOT / "logs" / "traces"
+    finally:
+        chat_service.set_agent(None)
+
+
+def test_empty_index_explains_the_fix(monkeypatch, tmp_path):
+    retriever = FakeRetriever()
+    retriever.store = types.SimpleNamespace(count=lambda: 0)
+    fake_retrieval = types.ModuleType("src.retrieval")
+    fake_retrieval.build_retriever = lambda: retriever
+    monkeypatch.setitem(sys.modules, "src.retrieval", fake_retrieval)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("CHROMA_DIR", str(tmp_path))
+    chat_service.set_agent(None)
+    with pytest.raises(ChatError) as error:
+        chat_service.answer("hello")
+    assert error.value.status == 503 and "empty" in error.value.message
 
 
 def test_status_reports_what_is_missing(monkeypatch, tmp_path):
