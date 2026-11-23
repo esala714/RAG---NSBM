@@ -677,7 +677,9 @@ chunk, every answer sentence and its support score) as JSON in `logs/evaluation/
   lower, and a sentence can reuse words from the context and still be wrong.
 - 17 questions is a small dataset, although it covers every document category.
 
----
+ ## Login: email + password + verification code
+ 
+
 
 ## Demo video
 
