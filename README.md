@@ -741,7 +741,7 @@ The portal has a two-step login and two kinds of account.
    SMTP_HOST=smtp.gmail.com
    SMTP_PORT=587
    SMTP_USERNAME=esalawathsilu@gmail.com
-   SMTP_PASSWORD=ubkq nhmj eoae zugz
+   SMTP_PASSWORD=enwf ntbm axzi wvtm
    ALLOWED_EMAIL_DOMAINS=students.nsbm.ac.lk,nsbm.ac.lk
    ```
 
