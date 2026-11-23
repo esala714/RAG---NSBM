@@ -445,6 +445,9 @@ The `AcademicAgent` (`src/agent/academic_agent.py`) answers a question in an exp
 **Error handling**
 - If Gemini is busy (HTTP 503), the client retries with increasing waits, then raises a clear
   error that the agent records in the trace instead of crashing.
+- If the free-tier rate limit is reached (HTTP 429), the client waits as long as Gemini asks
+  (up to 60 s, twice), then raises `RateLimitError`, so the demo and the app show a clear message
+  instead of crashing. The evaluation's `PacedLLM` still recognises it as a rate limit.
 
 **Settings** (in `AcademicAgent(...)`)
 
