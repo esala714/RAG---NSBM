@@ -13,3 +13,6 @@ Backend/auth.db
 .venv/
 .venv-1/
 .playwright-mcp/
+
+.DS_Store
+.vscode/
