@@ -3,3 +3,11 @@ venv/
 __pycache__/
 *.pyc
 logs/
+.env
+Backend/auth.db
+
+.env
+Backend/auth.db
+.venv/
+.venv-1/
+.playwright-mcp/

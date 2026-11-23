@@ -256,26 +256,69 @@
         </div>
     </main>
 
-    <!-- LOGIN MODAL POPUP -->
+    <!-- LOGIN MODAL POPUP (email + password, then a 6-digit code from the email) -->
     <div id="nsbmLoginModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(11, 61, 59, 0.8); z-index: 9999; justify-content: center; align-items: center;">
-        <div style="background: var(--surface); padding: 32px; border-radius: 16px; width: 380px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); border: 1px solid var(--secondary); color: var(--primary);">
-            <h3 style="margin-top: 0; color: var(--primary); font-size: 1.25rem; margin-bottom: 8px;">NSBM Portal Login</h3>
-            <p style="font-size: 0.85rem; color: var(--accent); margin-bottom: 24px;">Enter your credentials to access exams, payments, or admin records.</p>
-            
-            <div style="margin-bottom: 16px;">
-                <label style="display: block; font-size: 0.8rem; font-weight: bold; color: var(--primary); margin-bottom: 6px;">User ID / Email</label>
-                <input type="text" id="modalUserId" placeholder="e.g. student@nsbm.ac.lk" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--accent); background-color: var(--white); color: var(--primary); outline: none; box-sizing: border-box;" />
+        <div style="background: var(--surface); padding: 32px; border-radius: 16px; width: 380px; max-width: calc(100% - 32px); box-sizing: border-box; box-shadow: 0 10px 25px rgba(0,0,0,0.3); border: 1px solid var(--secondary); color: var(--primary);">
+            <h3 id="loginTitle" style="margin-top: 0; color: var(--primary); font-size: 1.25rem; margin-bottom: 8px;">NSBM Portal Login</h3>
+            <p id="loginHint" style="font-size: 0.85rem; color: var(--accent); margin-bottom: 24px;">Enter your credentials to access exams, payments, or admin records.</p>
+
+            <!-- Step 1: sign in with email + password -->
+            <div id="stepSignin">
+                <div style="margin-bottom: 16px;">
+                    <label for="modalUserId" style="display: block; font-size: 0.8rem; font-weight: bold; color: var(--primary); margin-bottom: 6px;">User ID / Email</label>
+                    <input type="email" id="modalUserId" autocomplete="username" placeholder="e.g. student@nsbm.ac.lk" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--accent); background-color: var(--white); color: var(--primary); outline: none; box-sizing: border-box;" />
+                </div>
+                <div style="margin-bottom: 24px;">
+                    <label for="modalPassword" style="display: block; font-size: 0.8rem; font-weight: bold; color: var(--primary); margin-bottom: 6px;">Password</label>
+                    <input type="password" id="modalPassword" autocomplete="current-password" placeholder="••••••••" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--accent); background-color: var(--white); color: var(--primary); outline: none; box-sizing: border-box;" />
+                </div>
+                <div style="display: flex; gap: 12px;">
+                    <button id="signInBtn" onclick="signIn()" style="flex: 1; background: var(--accent); color: var(--white); border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer;">Sign In</button>
+                    <button onclick="closeLoginModal()" style="flex: 1; background: #CBD5E1; color: #334155; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer;">Cancel</button>
+                </div>
+                <p style="margin-top: 16px; font-size: 0.8rem; color: var(--primary);">
+                    Don't have an account?
+                    <button onclick="showStep('register')" style="background: none; border: none; color: var(--accent); font-size: 0.8rem; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline;">Create one</button>
+                </p>
             </div>
 
-            <div style="margin-bottom: 24px;">
-                <label style="display: block; font-size: 0.8rem; font-weight: bold; color: var(--primary); margin-bottom: 6px;">Password</label>
-                <input type="password" id="modalPassword" placeholder="••••••••" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--accent); background-color: var(--white); color: var(--primary); outline: none; box-sizing: border-box;" />
+            <!-- Step 1 for new users: create an account -->
+            <div id="stepRegister" style="display: none;">
+                <div style="margin-bottom: 16px;">
+                    <label for="modalName" style="display: block; font-size: 0.8rem; font-weight: bold; color: var(--primary); margin-bottom: 6px;">Full name</label>
+                    <input type="text" id="modalName" autocomplete="name" maxlength="100" placeholder="e.g. Nimal Perera" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--accent); background-color: var(--white); color: var(--primary); outline: none; box-sizing: border-box;" />
+                </div>
+                <div style="margin-bottom: 16px;">
+                    <label for="modalRegEmail" style="display: block; font-size: 0.8rem; font-weight: bold; color: var(--primary); margin-bottom: 6px;">Email</label>
+                    <input type="email" id="modalRegEmail" autocomplete="email" placeholder="e.g. student@nsbm.ac.lk" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--accent); background-color: var(--white); color: var(--primary); outline: none; box-sizing: border-box;" />
+                </div>
+                <div style="margin-bottom: 24px;">
+                    <label for="modalRegPassword" style="display: block; font-size: 0.8rem; font-weight: bold; color: var(--primary); margin-bottom: 6px;">Password (at least 8 characters)</label>
+                    <input type="password" id="modalRegPassword" autocomplete="new-password" placeholder="••••••••" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--accent); background-color: var(--white); color: var(--primary); outline: none; box-sizing: border-box;" />
+                </div>
+                <div style="display: flex; gap: 12px;">
+                    <button id="registerBtn" onclick="createAccount()" style="flex: 1; background: var(--accent); color: var(--white); border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer;">Create account</button>
+                    <button onclick="showStep('signin')" style="flex: 1; background: #CBD5E1; color: #334155; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer;">Back</button>
+                </div>
             </div>
 
-            <div style="display: flex; gap: 12px;">
-                <button onclick="submitLogin()" style="flex: 1; background: var(--accent); color: var(--white); border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer;">Sign In</button>
-                <button onclick="closeLoginModal()" style="flex: 1; background: #CBD5E1; color: #334155; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer;">Cancel</button>
+            <!-- Step 2: the 6-digit code from the email -->
+            <div id="stepCode" style="display: none;">
+                <div style="margin-bottom: 12px;">
+                    <label for="modalCode" style="display: block; font-size: 0.8rem; font-weight: bold; color: var(--primary); margin-bottom: 6px;">6-digit code</label>
+                    <input type="text" id="modalCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--accent); background-color: var(--white); color: var(--primary); outline: none; box-sizing: border-box; letter-spacing: 4px; font-size: 1.1rem;" />
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 24px;">
+                    <button onclick="showStep(codeCameFrom)" style="background: none; border: none; color: var(--accent); font-size: 0.8rem; cursor: pointer; padding: 0; text-decoration: underline;">Back</button>
+                    <button id="resendBtn" onclick="resendCode()" style="background: none; border: none; color: var(--accent); font-size: 0.8rem; cursor: pointer; padding: 0; text-decoration: underline;">Resend code</button>
+                </div>
+                <div style="display: flex; gap: 12px;">
+                    <button id="verifyBtn" onclick="verifyCode()" style="flex: 1; background: var(--accent); color: var(--white); border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer;">Verify &amp; sign in</button>
+                    <button onclick="closeLoginModal()" style="flex: 1; background: #CBD5E1; color: #334155; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer;">Cancel</button>
+                </div>
             </div>
+
+            <p id="loginError" role="alert" style="display: none; margin: 16px 0 0; font-size: 0.85rem; color: #B91C1C;"></p>
         </div>
     </div>
 
@@ -313,41 +356,275 @@
             }, 600);
         }
 
-        function openLoginModal() { 
-            document.getElementById('nsbmLoginModal').style.display = 'flex'; 
+        // ---------------- Sign-in (email + password, then a 6-digit code from the email) ----------------
+        // Backend: Backend/auth_api.py on port 8001
+        //   Sign In        -> POST /api/auth/login        (password checked, code emailed)
+        //   Create account -> POST /api/auth/register     (code emailed to confirm the email)
+        //   Code           -> POST /api/auth/verify-otp   (returns token + user with role)
+        //   Resend code    -> POST /api/auth/resend-code
+        const AUTH_API = 'http://127.0.0.1:8001/api';
+        const TOKEN_KEY = 'nsbm_token';
+        const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+        let loginEmail = '';            // the email the code was sent to
+        let codeCameFrom = 'signin';    // where "Back" on the code step goes
+        let currentUser = null;
+        let resendTimer = null;
+
+        function getToken() {
+            try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; }
         }
-        
-        function closeLoginModal() { 
-            document.getElementById('nsbmLoginModal').style.display = 'none'; 
+        function setToken(t) {
+            try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) {}
         }
 
-        async function submitLogin() {
-            const user_id = document.getElementById('modalUserId').value.trim();
-            const password = document.getElementById('modalPassword').value.trim();
-            
-            if (!user_id || !password) { 
-                alert('Please enter both User ID and password.'); 
-                return; 
-            }
-
+        async function authFetch(path, options = {}) {
+            const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+            const token = getToken();
+            if (token) headers['Authorization'] = 'Bearer ' + token;
+            let res;
             try {
-                const res = await fetch('http://127.0.0.1:8001/api/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ user_id, password })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    localStorage.setItem('nsbm_token', data.token);
-                    alert(`Login Successful! Welcome ${data.user.full_name}`);
-                    closeLoginModal();
-                } else {
-                    alert(data.detail || 'Login failed.');
-                }
+                res = await fetch(AUTH_API + path, { ...options, headers });
             } catch (e) {
-                alert('Backend connection check: Ensure FastAPI is running on port 8001.');
+                throw { detail: "Can't reach the sign-in server. Make sure FastAPI is running on port 8001." };
+            }
+            const data = res.status === 204 ? {} : await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw {
+                    status: res.status, ...data,
+                    detail: data.detail || 'Something went wrong. Please try again.',
+                    retry_after: Number(res.headers.get('Retry-After')) || 0
+                };
+            }
+            return data;
+        }
+
+        // One message line under the form: red for problems, green for information.
+        function showMessage(msg, type) {
+            const el = document.getElementById('loginError');
+            el.textContent = msg || '';
+            el.style.display = msg ? 'block' : 'none';
+            el.style.color = type === 'info' ? 'var(--accent)' : '#B91C1C';
+        }
+        function showError(msg) { showMessage(msg, 'error'); }
+        function showInfo(msg) { showMessage(msg, 'info'); }
+
+        function setBusy(id, busy, busyText) {
+            const btn = document.getElementById(id);
+            if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+            btn.disabled = busy;
+            btn.style.opacity = busy ? '0.6' : '1';
+            btn.textContent = busy ? busyText : btn.dataset.label;
+        }
+
+        const STEPS = {
+            signin: {
+                box: 'stepSignin', focus: 'modalUserId', title: 'NSBM Portal Login',
+                hint: 'Enter your credentials to access exams, payments, or admin records.'
+            },
+            register: {
+                box: 'stepRegister', focus: 'modalName', title: 'Create your account',
+                hint: "Use your NSBM email. We'll send a 6-digit code to confirm it's yours."
+            },
+            code: {
+                box: 'stepCode', focus: 'modalCode', title: 'Check your email', hint: ''
+            }
+        };
+
+        function showStep(step) {
+            showError('');
+            for (const [name, s] of Object.entries(STEPS)) {
+                document.getElementById(s.box).style.display = name === step ? 'block' : 'none';
+            }
+            document.getElementById('loginTitle').textContent = STEPS[step].title;
+            document.getElementById('loginHint').textContent =
+                step === 'code' ? 'Enter the 6-digit code we sent to ' + loginEmail + '.' : STEPS[step].hint;
+            if (step === 'code') document.getElementById('modalCode').value = '';
+            document.getElementById(STEPS[step].focus).focus();
+        }
+
+        // "Resend in 25s" countdown, so people don't hit the 30-second limit. 0 = enable now.
+        function startResendCountdown(seconds) {
+            const btn = document.getElementById('resendBtn');
+            clearInterval(resendTimer);
+            let left = Math.max(0, Math.ceil(seconds || 0));
+            const tick = () => {
+                if (left <= 0) {
+                    clearInterval(resendTimer);
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    btn.textContent = 'Resend code';
+                    return;
+                }
+                btn.disabled = true;
+                btn.style.opacity = '0.6';
+                btn.textContent = 'Resend in ' + left + 's';
+                left--;
+            };
+            tick();
+            resendTimer = setInterval(tick, 1000);
+        }
+
+        function openLoginModal() {
+            if (currentUser) {
+                if (confirm('Signed in as ' + currentUser.email + '. Sign out?')) logout();
+                return;
+            }
+            document.getElementById('nsbmLoginModal').style.display = 'flex';
+            showStep('signin');
+        }
+
+        function closeLoginModal() {
+            document.getElementById('nsbmLoginModal').style.display = 'none';
+            for (const id of ['modalPassword', 'modalRegPassword', 'modalCode']) {
+                document.getElementById(id).value = '';
+            }
+            clearInterval(resendTimer);
+            showError('');
+        }
+
+        function goToCodeStep(email, from, resendAfter, message) {
+            loginEmail = email;
+            codeCameFrom = from;
+            showStep('code');
+            showInfo(message);
+            startResendCountdown(resendAfter);
+        }
+
+        // Step 1: email + password. If they are right, the server emails a code.
+        async function signIn() {
+            const email = document.getElementById('modalUserId').value.trim();
+            const password = document.getElementById('modalPassword').value;
+            if (!EMAIL_PATTERN.test(email) || !password) { showError('Please enter both your email and password.'); return; }
+            showError('');
+            setBusy('signInBtn', true, 'Checking...');
+            try {
+                const data = await authFetch('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+                setBusy('signInBtn', false);
+                goToCodeStep(email, 'signin', data.resend_after,
+                    'We sent a verification code to your email. It expires in ' + Math.round(data.expires_in / 60) + ' minutes.');
+            } catch (err) {
+                setBusy('signInBtn', false);
+                if (err.code === 'otp_cooldown') {
+                    // A code was sent a few seconds ago and still works: go and type it.
+                    goToCodeStep(email, 'signin', err.retry_after || 30, 'We sent you a code a moment ago. Enter it below.');
+                } else {
+                    showError(err.detail);
+                }
             }
         }
+
+        // Step 1 for new users: name, email, password. The server emails a code to confirm the email.
+        async function createAccount() {
+            const full_name = document.getElementById('modalName').value.trim();
+            const email = document.getElementById('modalRegEmail').value.trim();
+            const password = document.getElementById('modalRegPassword').value;
+            if (full_name.length < 2) { showError('Please enter your full name.'); return; }
+            if (!EMAIL_PATTERN.test(email)) { showError('Please enter a valid email.'); return; }
+            if (password.length < 8) { showError('Use a password of at least 8 characters.'); return; }
+            showError('');
+            setBusy('registerBtn', true, 'Creating...');
+            try {
+                const data = await authFetch('/auth/register', { method: 'POST', body: JSON.stringify({ full_name, email, password }) });
+                setBusy('registerBtn', false);
+                goToCodeStep(email, 'register', data.resend_after,
+                    'We sent a code to confirm your email. It expires in ' + Math.round(data.expires_in / 60) + ' minutes.');
+            } catch (err) {
+                setBusy('registerBtn', false);
+                if (err.code === 'otp_cooldown') {
+                    goToCodeStep(email, 'register', err.retry_after || 30, 'We sent you a code a moment ago. Enter it below.');
+                } else if (err.code === 'email_taken') {
+                    document.getElementById('modalUserId').value = email;
+                    showStep('signin');
+                    showInfo(err.detail);
+                } else {
+                    showError(err.detail);
+                }
+            }
+        }
+
+        async function resendCode() {
+            document.getElementById('resendBtn').disabled = true;
+            try {
+                const data = await authFetch('/auth/resend-code', { method: 'POST', body: JSON.stringify({ email: loginEmail }) });
+                document.getElementById('modalCode').value = '';
+                showInfo('New code sent. It expires in ' + Math.round(data.expires_in / 60) + ' minutes.');
+                startResendCountdown(data.resend_after);
+            } catch (err) {
+                if (err.code === 'otp_cooldown') {
+                    startResendCountdown(err.retry_after || 30);
+                    showError(err.detail);
+                } else if (err.code === 'otp_missing') {
+                    startResendCountdown(0);
+                    showStep(codeCameFrom);     // the sign-in timed out: enter the password again
+                    showError(err.detail);
+                } else {
+                    startResendCountdown(0);
+                    showError(err.detail);
+                }
+            }
+        }
+
+        // Step 2: the 6-digit code from the email.
+        async function verifyCode() {
+            const input = document.getElementById('modalCode');
+            const code = input.value.replace(/\s/g, '');
+            if (!/^\d{6}$/.test(code)) { showError('Enter the 6-digit code from your email.'); return; }
+            showError('');
+            setBusy('verifyBtn', true, 'Checking...');
+            try {
+                const data = await authFetch('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ email: loginEmail, code }) });
+                setToken(data.token);
+                setBusy('verifyBtn', false);
+                signedIn(data.user);
+                closeLoginModal();
+            } catch (err) {
+                setBusy('verifyBtn', false);
+                if (err.code === 'otp_missing' || err.code === 'signup_missing') {
+                    startResendCountdown(0);
+                    showStep(codeCameFrom);     // start step 1 again
+                    showError(err.detail);
+                } else {
+                    showError(err.detail);
+                    if (err.code === 'otp_locked' || err.code === 'otp_expired') {
+                        input.value = '';
+                        startResendCountdown(0);   // "Resend code" works straight away
+                    }
+                }
+            }
+        }
+
+        function signedIn(user) {
+            currentUser = user;
+            document.getElementById('loginBtnText').textContent = user.full_name || user.email;
+            document.querySelector('.user-badge').textContent = user.role === 'admin' ? 'Admin Portal' : 'Student / Faculty Portal';
+        }
+
+        async function logout() {
+            try { await authFetch('/auth/logout', { method: 'POST' }); } catch (e) {}
+            setToken(null);
+            currentUser = null;
+            document.getElementById('loginBtnText').textContent = 'Login';
+            document.querySelector('.user-badge').textContent = 'Student / Faculty Portal';
+        }
+
+        // Restore the session after a page reload.
+        (async function restoreSession() {
+            if (!getToken()) return;
+            try {
+                signedIn(await authFetch('/auth/me'));
+            } catch (err) {
+                if (err.status === 401) setToken(null);
+            }
+        })();
+
+        // Enter key moves each step forward.
+        const onEnter = (id, action) => document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') action(); });
+        onEnter('modalUserId', signIn);
+        onEnter('modalPassword', signIn);
+        onEnter('modalName', createAccount);
+        onEnter('modalRegEmail', createAccount);
+        onEnter('modalRegPassword', createAccount);
+        onEnter('modalCode', verifyCode);
 
         document.getElementById('queryInput').addEventListener('keypress', function (e) {
             if (e.key === 'Enter') {
