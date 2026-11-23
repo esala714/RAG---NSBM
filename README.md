@@ -677,9 +677,139 @@ chunk, every answer sentence and its support score) as JSON in `logs/evaluation/
   lower, and a sentence can reuse words from the context and still be wrong.
 - 17 questions is a small dataset, although it covers every document category.
 
- ## Login: email + password + verification code
- 
+## User interface and login
 
+User interface, login and integration: **Esala Kumarapperuma**
+
+### User interface (`Frontend/UI.html`)
+
+The portal is a single web page in plain HTML, CSS and JavaScript, with no build step. It uses an NSBM green theme and the Segoe UI font.
+
+| Part | What it shows and does |
+| --- | --- |
+| **Sidebar** | NSBM Green University · Admin & RAG Assistant, with the menu: AI Assistant, Course Catalogs (opens the NSBM degree programmes page), Payments, Examination, Lecturers |
+| **Most Asked FAQs** | One-click questions: Payment Deadlines, Exam Repetition Policy, Lecturer Qualifications. Clicking one sends it to the chat |
+| **Support desk** | NSBM hotline +94 11 544 5000 and inquiries@nsbm.ac.lk |
+| **Header** | NSBM Administrative Knowledge Base, a badge showing the account type (*Student / Faculty Portal* or *Admin Portal*) and the **Login** button. When signed in, the button shows your name; click it to sign out |
+| **Chat** | Welcome message, your questions on the right and the assistant's answers on the left, each answer with a **Source** tag |
+| **Question box** | Type a question and press **Send** or Enter |
+| **Login popup** | Sign in, create an account and enter the emailed code (see below) |
+
+**Colours**
+
+| Name | Colour | Used for |
+| --- | --- | --- |
+| Primary | `#0B3D3B` | Sidebar, headings, your chat messages |
+| Accent | `#148A64` | Buttons, links, active menu item |
+| Secondary | `#99F6E4` | Badge, borders |
+| Surface | `#E6FFFB` | Header, input bar, assistant messages, login popup |
+| Background | `#F8FFFE` | Page background |
+
+**Open the UI:** in VS Code press **F5**, or right-click `Frontend/UI.html` and choose **Open with Live Server**. The login needs the backend running (see Setup below).
+
+**Current status:** the chat shows a placeholder answer ("Searching NSBM RAG Knowledge Base…"). The next step is connecting it to the RAG backend, sending the signed-in user's token with each question (see *Protecting another endpoint* below).
+
+### Login: email + password + verification code
+
+The portal has a two-step login and two kinds of account.
+
+- **Create account:** full name, email and a password (at least 8 characters). A 6-digit code is emailed to confirm the address. The account is only saved once the code is entered.
+- **Sign in:** email and password. If they are correct, a 6-digit code is emailed, and entering it signs you in.
+- **Roles:** emails listed in `ADMIN_EMAILS` are **admins** (badge: *Admin Portal*). Everyone else is a **user** (badge: *Student / Faculty Portal*).
+
+#### Files
+
+| File | What it does |
+| --- | --- |
+| `Frontend/UI.html` | Login popup: sign in, create account, enter the code |
+| `Backend/auth_api.py` | FastAPI server for sign-in (port 8001) |
+| `Backend/auth_service.py` | Accounts, password hashing, email codes, sessions, sending email |
+| `Backend/auth.db` | SQLite database, created automatically (not committed) |
+
+#### Setup
+
+1. Install the packages:
+
+   ```bash
+   pip install fastapi uvicorn python-dotenv
+   ```
+
+2. Create a file named `.env` in the project folder. Never commit it: it holds a password.
+
+   ```ini
+   ADMIN_EMAILS=esalawathsilu@gmail.com
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USERNAME=esalawathsilu@gmail.com
+   SMTP_PASSWORD=ubkq nhmj eoae zugz
+   ALLOWED_EMAIL_DOMAINS=students.nsbm.ac.lk,nsbm.ac.lk
+   ```
+
+   - `SMTP_PASSWORD` must be a Gmail **App Password**, not the normal Google password. Turn on 2-Step Verification, then create one at <https://myaccount.google.com/apppasswords>.
+   - While developing you can leave `SMTP_HOST` empty: no email is sent and the code is printed in the terminal instead.
+   - `ALLOWED_EMAIL_DOMAINS` limits sign-up to NSBM addresses. Emails in `ADMIN_EMAILS` are always allowed. Leave it empty to allow any email.
+
+3. Start the backend from the project folder and leave the terminal open:
+
+   ```bash
+   python3 -m uvicorn auth_api:app --reload --port 8001 --app-dir Backend
+   ```
+
+   Check it at <http://127.0.0.1:8001/api/health>. With email set up it shows `"email_mode": "smtp"`.
+
+4. Open `Frontend/UI.html` (VS Code: press F5, or use Live Server) and click **Login**.
+
+#### API
+
+All requests and responses are JSON. Errors look like `{"detail": "message for the user", "code": "invalid_credentials"}`.
+
+| Method and path | Body | Result |
+| --- | --- | --- |
+| `POST /api/auth/register` | `full_name`, `email`, `password` | Emails a code |
+| `POST /api/auth/login` | `email`, `password` | Emails a code if the password is right |
+| `POST /api/auth/resend-code` | `email` | Emails a new code |
+| `POST /api/auth/verify-otp` | `email`, `code` | `token`, `user` (with `role`), `is_new_user` |
+| `GET /api/auth/me` | Bearer token | The signed-in user |
+| `POST /api/auth/logout` | Bearer token | Ends the session |
+| `GET /api/admin/users` | Admin token | Every account |
+| `GET /api/health` | none | Server status |
+
+To protect another endpoint (for example the RAG chat):
+
+```python
+from auth_api import get_current_user, require_admin
+
+@app.post("/api/chat")
+def chat(body: ChatIn, user: dict = Depends(get_current_user)):
+    ...   # user["email"], user["role"]
+```
+
+#### Security
+
+- Passwords are stored only as PBKDF2-SHA256 hashes (600,000 iterations). Codes are stored as keyed HMAC hashes and session tokens as SHA-256 hashes.
+- Codes are 6 digits, work once, expire after 10 minutes, and are cancelled after 5 wrong tries. A new code can be requested after 30 seconds, at most 5 per hour.
+- 5 wrong passwords pause the account for 15 minutes.
+- Sessions last 24 hours.
+
+#### Troubleshooting
+
+| Problem | Fix |
+| --- | --- |
+| "Can't reach the sign-in server" | The backend isn't running. Start it (step 3). |
+| `Address already in use` | An old backend is still running: `lsof -ti tcp:8001 \| xargs kill -9`, then start again. |
+| The code appears in the terminal, not by email | `SMTP_HOST` is empty or `.env` isn't read. Run `pip install python-dotenv` and restart the backend. |
+| "We couldn't send the email" | `SMTP_PASSWORD` is not a valid Gmail App Password. |
+| No email arrives | Check the Spam folder and that the email address is typed correctly. |
+
+### Screenshots
+
+| Home | Login |
+| --- | --- |
+| ![Home page](docs/screenshots/home.png) | ![Login popup](docs/screenshots/login.png) |
+| **Create account** | **Enter the code** |
+| ![Create account](docs/screenshots/create-account.png) | ![Enter the code](docs/screenshots/verify-code.png) |
+| **Verification email** | **Signed in as admin** |
+| ![Verification email](docs/screenshots/email.png) | ![Signed in as admin](docs/screenshots/signed-in-admin.png) |
 
 ## Demo video
 
