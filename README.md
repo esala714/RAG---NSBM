@@ -880,4 +880,4 @@ def reindex(admin: dict = Depends(require_admin)):
 
 ## Demo video
 
-*Link to the unlisted YouTube video: to be added.*
+[Watch the demo video (unlisted YouTube)](https://youtu.be/6jcv5_Fc1SA)
